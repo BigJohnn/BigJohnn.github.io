@@ -15,8 +15,6 @@ RSS: false
 
 zhihu_username:     BigJohhn
 github_username:    BigJohnn
-#twitter_username:  huxpro
-# facebook_username:  huxpro
 
 
 
@@ -68,7 +66,7 @@ kramdown:
 
 # Sidebar settings
 sidebar: true                           # whether or not using Sidebar.
-sidebar-about-description: "吾生也有涯，而知也无涯，以有涯随无涯，殆矣。"
+sidebar-about-description: ""
 sidebar-avatar: /img/avatar.jpg      # use absolute URL, seeing it's used in both `/` and `/about/`
 
 
