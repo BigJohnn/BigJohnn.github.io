@@ -1,0 +1,22 @@
+---
+layout:     post
+title:      "草莓熊机器人"
+subtitle:   "创业探索项目"
+date:       2024-10-30
+author:     "Peihong"
+tags:
+    - Lego
+    - 单板机
+    - SLAM
+    - ESPS3-BOX-3
+    - LLM
+    - LVGL
+---
+
+**简介**
+
+受到[LOOI](https://looirobot.com/)启发的一个机器人项目。
+
+[项目Wiki](https://github.com/BigJohnn/StrawberryBearRobot/wiki)
+
+    
