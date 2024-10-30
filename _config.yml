@@ -1,13 +1,10 @@
 # Site settings
-title: BigJohnn Blog
-SEOTitle: 我的博客 | BigJohnn Blog
+title: 项目清单
+SEOTitle: 我的博客 | 项目清单
 header-img: img/home-bg.jpg
 email: kjustdoitno1@gmail.com
 description: ""
 keyword: ""
-# url: "http://huangxuan.me"              # your host, for absolute URL
-# baseurl: "/huxblog-boilerplate"         # for example, '/blog' if your blog hosted on 'host/blog'
-
 
 
 # SNS settings
