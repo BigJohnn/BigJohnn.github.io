@@ -3,7 +3,7 @@ layout:     post
 title:      "ORBSLAM3 iOS"
 subtitle:   "用于熟悉一下iOS框架"
 date:       2024-03-31
-author:     "HouPeihong"
+author:     "Peihong"
 header-img: "img/post-bg-unix-linux.jpg"
 tags:
     - ORB_SLAM3

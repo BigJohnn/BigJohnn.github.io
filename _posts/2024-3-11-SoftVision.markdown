@@ -3,7 +3,7 @@ layout:     post
 title:      "SoftVision"
 subtitle:   "AliceVision iOS版"
 date:       2024-03-11
-author:     "HouPeihong"
+author:     "Peihong"
 # header-img: "img/SoftVision.png"
 tags:
     - SoftVision
@@ -55,5 +55,5 @@ ToDoList:
 
 Note.
 ```
-由于前面遇到性能问题，一直没有解决，写完深度图计算后，此项目暂且搁置。
+该项目不再更新， 后续拥抱3D-GS类新技术。
 ```
