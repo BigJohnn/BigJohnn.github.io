@@ -1,0 +1,47 @@
+---
+layout:     post
+title:      "zeroth-01低成本人形机器人"
+subtitle:   "开源项目"
+date:       2024-11-20
+author:     "Peihong"
+tags:
+    - MilkV
+    - STS3215
+    - 3D Print
+    - Reinforcement Learning
+    - Edge Vision-Language-Action (EVLA)
+    - Isaac Gym
+---
+
+**简介**
+
+[Zeroth项目文档(WIP)](https://docs.zeroth.bot/)
+
+保证nvidia-smi work的情况下，可使用以下docker跑sim，
+```
+docker pull ghcr.io/bigjohnn/zeroth-bot-sim:v1
+```
+该docker使用X11转发机制，将container的图形绘制在host机器上。docker的详细构建过程在[这里](https://github.com/BigJohnn/sim/tree/master/docker).
+
+## **关于硬件**
+
+### 全部硬件可以在国内买到，其中电机成本约1600+,占了大头；
+
+### 嘉立创下单注意的点
+
+a.导入BOM
+
+b.获取匹配结果，注意会有四种情况：I.完全匹配，且现货的-不用管；II.无法匹配，需要结合[电路图](https://github.com/zeroth-robotics/zeroth-bot/blob/84d22a78be6f2de016b635bc210d160ce3fa3bdc/hardware/Electronics/IMU%20Mount%2C%20Rev%20A/IMU%20Mount%20Schematic.pdf) && [CAD](https://cad.onshape.com/documents/b4672a7f8ce3947bd250f2c1/w/ff02744612b3ad395d4541a6/e/6e9a04dde965d2dab1a3d9af)中Electronics->Electronics Hat等图形去判断选用哪个元件；III.完全匹配且需要订货的，选个有货的替代型号即可；IV.完全匹配需要海外代购的，同III.
+
+c.打板参数的选择，使用华秋FDM可以解析到需要的PCB层数；其他可以选择默认，免费之类的；
+
+d.MilkV 转接板比较紧凑，如果自己焊接有难度，下SMT订单也是不错的选择；
+
+### 3D打印：成品体积比较大，打印机一般的推荐代工，夹爪考虑添加柔性&CNC材料，别的使用最廉价方案即可。
+
+### 关于组装
+
+1.大部分螺丝可以复用STS电机自带的，个别需要采购，参考[CAD](https://cad.onshape.com/documents/b4672a7f8ce3947bd250f2c1/w/ff02744612b3ad395d4541a6/e/6e9a04dde965d2dab1a3d9af)，找到自己缺的型号；
+
+2.1～3把不同尺寸合适的螺丝刀很重要； 强磁铁🧲常备手边可以确保拆卸自攻丝时候得心应手。
+    

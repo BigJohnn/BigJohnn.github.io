@@ -1,0 +1,46 @@
+---
+layout:     post
+title:      "Lerobot"
+subtitle:   "开源项目"
+date:       2024-11-20
+author:     "Peihong"
+tags:
+    - SO100
+    - ACT policy
+    - TDMPC policy
+    - Diffusion policy
+    - 3D Print
+    
+---
+
+**简介**
+
+[Lerobot](https://github.com/huggingface/lerobot)是一个非常有趣的开源机器人项目，由Hugging Face团队推出。你可以把它想象成机器人领域的“Transformers”，就像Transformers库在自然语言处理领域的地位一样。
+
+LeRobot能做什么？
+
+降低机器人研发的门槛： LeRobot提供了全面的工具和资源，包括预训练模型、数据集、以及详细的教程。即使你不是机器人专家，也可以快速上手，搭建自己的机器人。
+加速机器人创新： LeRobot鼓励开发者共享他们的模型和数据，从而促进机器人技术的快速发展。
+提供强大的工具： LeRobot不仅是一个软件包，更是一个包含了用于共享、可视化数据和训练最先进模型的多功能库的全面平台。
+
+[SO100](https://github.com/TheRobotStudio/SO-ARM100)是一套低成本的硬件方案，需要12个STS3215电机，两个waveshare的电机控制板，3D打印件若干，螺丝🔩若干，12V电源（线）x2，整体硬件成本约 RMB 1800 元。
+
+SO100的主控比较灵活，需要4个USB2.0接口，其中，2个用来接cam，提供不同视角的观测图像；2个用来接电机控制板，提供控制信号。
+
+**Cam的选择**
+
+理论上任何RGB摄像头都可以，需要足够长的连接线，最好配上万向相机支架（<20RMB),从而灵活调整相机位置&&保证数据的稳定一致性。
+
+---------------------------
+**W.I.P**
+
+**关于训练**
+
+**Policy评估**
+
+
+
+
+
+
+    

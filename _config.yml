@@ -1,7 +1,7 @@
 # Site settings
 title: 项目清单
 SEOTitle: 我的博客 | 项目清单
-header-img: img/home-bg.jpg
+# header-img: img/home-bg.jpg
 email: kjustdoitno1@gmail.com
 description: ""
 keyword: ""
