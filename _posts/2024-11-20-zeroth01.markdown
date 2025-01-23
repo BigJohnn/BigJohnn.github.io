@@ -17,6 +17,15 @@ tags:
 
 [Zeroth项目文档(WIP)](https://docs.zeroth.bot/)
 
+-----------------------------
+
+2025.2.28 更新
+
+[硬件搭建篇](https://mp.weixin.qq.com/s?__biz=MzkzMzY0NjgxOA==&mid=2247484801&idx=1&sn=61faa2786bf82c8aa829d425743ac236&scene=21#wechat_redirect)
+[强化学习初步](https://mp.weixin.qq.com/s/wyHFt1uXv3qZHsnYpxycgg)
+
+-------------------------------------------
+
 保证nvidia-smi work的情况下，可使用以下docker跑sim，
 ```
 docker pull ghcr.io/bigjohnn/zeroth-bot-sim:v1

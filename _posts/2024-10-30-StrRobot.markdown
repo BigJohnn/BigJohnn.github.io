@@ -6,9 +6,10 @@ date:       2024-10-30
 author:     "Peihong"
 tags:
     - Lego
-    - 单板机
+    - Orange Pi/Raspberry Pi
     - SLAM
-    - ESPS3-BOX-3
+    - ESP32
+    - Arduino
     - LLM
     - LVGL
 ---
@@ -19,4 +20,4 @@ tags:
 
 [项目Wiki](https://github.com/BigJohnn/StrawberryBearRobot/wiki)
 
-    
+![img](/img/SRobot.jpg)

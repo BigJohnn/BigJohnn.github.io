@@ -10,25 +10,25 @@ tags:
     - iOS
 ---
 
-这个版本对原始[AliceVision](https://github.com/alicevision/AliceVision)做了删减，为适配iOS，使用Metal重写了计算SGM（半高斯匹配）的CUDA部分。
+[SoftVision](https://github.com/BigJohnn/SoftVision)对[AliceVision](https://github.com/alicevision/AliceVision)做了删减，为适配iOS，使用Metal重写了计算SGM（半高斯匹配）的CUDA部分。
 
-![img](/img/SoftVision.png)
+![img](/img/softvision/SoftVision.png)
 
-![](/img/CamInit.png)
+![](/img/softvision/CamInit.png)
 
-![](/img/FeatureExtract.png)
+![](/img/softvision/FeatureExtract.png)
 
-![](/img/FeatureMatching.png)
+![](/img/softvision/FeatureMatching.png)
 
-![img](/img/SequentialSFM.png)
+![img](/img/softvision/SequentialSFM.png)
 
-![](/img/Prepare DenseScene.png)
+![](/img/softvision/Prepare DenseScene.png)
 
-![](/img/DepthEstimation.png)
+![](/img/softvision/DepthEstimation.png)
 
-![](/img/Meshing.png)
+![](/img/softvision/Meshing.png)
 
-![](/img/TextureMapping.png)
+![](/img/softvision/TextureMapping.png)
 
 > Prepare Input Data: Essential SwiftUI for camera meta data aquirement, done.
 > (SIFT)Feature Extracting, done.
