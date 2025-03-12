@@ -18,6 +18,8 @@ tags:
 
 受到[LOOI](https://looirobot.com/)启发的一个机器人项目。
 
+它把市面上可以买到的一些硬件进行了简单的机械组合，设备之间通过蓝牙/Wifi/串口进行通讯，用于原型功能验证，不需要焊接&&3d打印。
+
 [项目Wiki](https://github.com/BigJohnn/StrawberryBearRobot/wiki)
 
 ![img](/img/SRobot.jpg)
