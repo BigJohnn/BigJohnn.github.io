@@ -1,0 +1,162 @@
+---
+interface Props {
+  chart: string;
+  title?: string;
+  fontSize?: string;
+  minWidth?: string;
+  renderWidth?: string;
+}
+
+const {
+  chart,
+  title = "Mermaid diagram",
+  fontSize,
+  minWidth,
+  renderWidth
+} = Astro.props;
+
+const initConfig = {};
+
+if (fontSize) {
+  initConfig.themeVariables = {
+    fontSize
+  };
+}
+
+const renderedChart = Object.keys(initConfig).length > 0
+  ? `%%{init: ${JSON.stringify(initConfig)}}%%\n${chart}`
+  : chart;
+---
+
+<figure class="mermaid-block">
+  <div
+    class:list={[
+      "mermaid-diagram",
+      minWidth && "mermaid-diagram--fixed-width",
+      renderWidth && "mermaid-diagram--render-width"
+    ]}
+    data-chart={renderedChart}
+    data-mermaid-state="idle"
+    aria-label={title}
+    style={[
+      minWidth ? `--mermaid-min-width:${minWidth};` : "",
+      renderWidth ? `--mermaid-render-width:${renderWidth};` : ""
+    ]
+      .filter(Boolean)
+      .join(";")}
+  >
+    <pre>{renderedChart}</pre>
+  </div>
+</figure>
+
+<script>
+  let mermaidModulePromise;
+
+  const loadMermaid = async () => {
+    if (!mermaidModulePromise) {
+      mermaidModulePromise = import("mermaid").then(({ default: mermaid }) => {
+        mermaid.initialize({
+          startOnLoad: false,
+          theme: "neutral",
+          securityLevel: "loose"
+        });
+        return mermaid;
+      });
+    }
+
+    return mermaidModulePromise;
+  };
+
+  const renderDiagram = async (element) => {
+    if (!element || element.dataset.mermaidState !== "idle") {
+      return;
+    }
+
+    element.dataset.mermaidState = "loading";
+
+    try {
+      const mermaid = await loadMermaid();
+      const graphDefinition = element.dataset.chart ?? "";
+      const graphId = `mermaid-${Math.random().toString(36).slice(2, 10)}`;
+      const { svg } = await mermaid.render(graphId, graphDefinition);
+      element.innerHTML = svg;
+      element.dataset.mermaidState = "rendered";
+    } catch (error) {
+      element.dataset.mermaidState = "error";
+      console.error("Failed to render Mermaid diagram", error);
+    }
+  };
+
+  const diagrams = Array.from(document.querySelectorAll(".mermaid-diagram"));
+
+  if ("IntersectionObserver" in window) {
+    const observer = new IntersectionObserver(
+      (entries) => {
+        for (const entry of entries) {
+          if (entry.isIntersecting) {
+            observer.unobserve(entry.target);
+            renderDiagram(entry.target);
+          }
+        }
+      },
+      {
+        rootMargin: "240px 0px"
+      }
+    );
+
+    diagrams.forEach((diagram) => observer.observe(diagram));
+  } else {
+    diagrams.forEach((diagram) => renderDiagram(diagram));
+  }
+</script>
+
+<style>
+  .mermaid-block {
+    margin: 0 0 1.4rem;
+  }
+
+  .mermaid-diagram {
+    padding: 1rem;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    background: linear-gradient(180deg, rgba(255, 255, 255, 0.75), rgba(247, 241, 231, 0.9));
+    box-shadow: var(--shadow);
+    overflow-x: auto;
+    content-visibility: auto;
+    contain-intrinsic-size: 320px;
+  }
+
+  .mermaid-diagram pre {
+    margin: 0;
+    white-space: pre-wrap;
+    color: var(--muted);
+    font-size: 0.92rem;
+  }
+
+  .mermaid-diagram :global(svg) {
+    display: block;
+    height: auto;
+    max-width: 100%;
+  }
+
+  .mermaid-diagram :global(svg text),
+  .mermaid-diagram :global(svg tspan),
+  .mermaid-diagram :global(svg foreignObject),
+  .mermaid-diagram :global(svg foreignObject div),
+  .mermaid-diagram :global(svg foreignObject span),
+  .mermaid-diagram :global(svg .nodeLabel),
+  .mermaid-diagram :global(svg .edgeLabel) {
+    font-family: "Iowan Old Style", "Palatino Linotype", "Noto Serif SC", serif !important;
+  }
+
+  .mermaid-diagram--fixed-width :global(svg) {
+    max-width: none;
+    min-width: var(--mermaid-min-width);
+  }
+
+  .mermaid-diagram--render-width :global(svg) {
+    width: var(--mermaid-render-width);
+    max-width: none;
+    min-width: 0;
+  }
+</style>
