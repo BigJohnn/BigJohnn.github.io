@@ -1,6 +1,7 @@
 ---
 import { getCollection, render } from "astro:content";
 import PageLayout from "../../layouts/PageLayout.astro";
+import MediaImage from "../../components/MediaImage.astro";
 
 export async function getStaticPaths() {
   const projects = await getCollection("projects");
@@ -18,12 +19,22 @@ const { Content } = await render(project);
   title={project.data.title}
   description={project.data.description}
   canonicalPath={`/projects/${project.id}/`}
+  image={project.data.coverFallback ?? project.data.cover}
 >
   <section class="section">
     <div class="tag-list">
       <span class="tag">{project.data.status}</span>
       {project.data.tech.map((item: string) => <span class="tag">{item}</span>)}
     </div>
+    {project.data.cover && (
+      <MediaImage
+        src={project.data.cover}
+        fallbackSrc={project.data.coverFallback}
+        sources={project.data.coverFallback ? [{ src: project.data.cover }] : []}
+        alt={project.data.coverAlt ?? project.data.title}
+        eager={true}
+      />
+    )}
     <article class="prose">
       <Content />
     </article>

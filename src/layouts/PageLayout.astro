@@ -5,12 +5,13 @@ interface Props {
   title: string;
   description?: string;
   canonicalPath?: string;
+  image?: string;
 }
 
-const { title, description, canonicalPath } = Astro.props;
+const { title, description, canonicalPath, image } = Astro.props;
 ---
 
-<BaseLayout title={`${title} | 项目清单`} description={description} canonicalPath={canonicalPath}>
+<BaseLayout title={`${title} | 项目清单`} description={description} canonicalPath={canonicalPath} image={image}>
   <main class="shell section">
     <slot />
   </main>

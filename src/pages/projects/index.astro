@@ -1,25 +1,25 @@
 ---
-import { getCollection } from "astro:content";
 import PageLayout from "../../layouts/PageLayout.astro";
 import ProjectCard from "../../components/ProjectCard.astro";
+import { getFeaturedItems } from "../../utils/featured";
 
-const projectEntries = (await getCollection("projects")).sort((a, b) => a.data.order - b.data.order);
+const featuredItems = await getFeaturedItems();
 ---
 
 <PageLayout title="项目" description="重点项目与结构化作品页。" canonicalPath="/projects/">
   <section class="section">
     <div class="section__title">
       <h2>Projects</h2>
-      <p class="meta">{projectEntries.length} 个重点项目</p>
+      <p class="meta">{featuredItems.length} 个重点项目</p>
     </div>
     <div class="grid grid--two">
-      {projectEntries.map((project) => (
+      {featuredItems.map((project) => (
         <ProjectCard
-          href={`/projects/${project.id}/`}
-          title={project.data.title}
-          description={project.data.description}
-          status={project.data.status}
-          tech={project.data.tech}
+          href={project.href}
+          title={project.title}
+          description={project.description}
+          status={project.status}
+          tech={project.tech}
         />
       ))}
     </div>

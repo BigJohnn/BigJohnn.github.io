@@ -31,6 +31,7 @@ const projects = defineCollection({
     tech: z.array(z.string()).default([]),
     tags: z.array(z.string()).default([]),
     cover: z.string().optional(),
+    coverFallback: z.string().optional(),
     coverAlt: z.string().optional(),
     repo: z.string().url().optional(),
     demo: z.string().url().optional(),

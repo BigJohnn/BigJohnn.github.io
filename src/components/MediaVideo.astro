@@ -1,6 +1,7 @@
 ---
 interface Props {
-  src: string;
+  src?: string;
+  sources?: { src: string; type?: string }[];
   title?: string;
   caption?: string;
   poster?: string;
@@ -11,6 +12,7 @@ interface Props {
 
 const {
   src,
+  sources = [],
   title,
   caption,
   poster,
@@ -18,6 +20,13 @@ const {
   width = 16,
   height = 9
 } = Astro.props;
+
+const resolvedSources =
+  sources.length > 0
+    ? sources
+    : src
+      ? [{ src, type: src.endsWith(".mp4") ? "video/mp4" : "video/webm" }]
+      : [];
 ---
 
 <figure class="media-video">
@@ -29,7 +38,7 @@ const {
     title={title}
     style={`aspect-ratio:${width} / ${height};`}
   >
-    <source src={src} type="video/webm" />
+    {resolvedSources.map((item) => <source src={item.src} type={item.type} />)}
     您的浏览器不支持 HTML5 视频。
   </video>
   {caption && <figcaption>{caption}</figcaption>}

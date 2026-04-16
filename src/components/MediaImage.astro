@@ -1,0 +1,85 @@
+---
+interface SourceItem {
+  src: string;
+  type?: string;
+}
+
+interface Props {
+  src: string;
+  alt: string;
+  fallbackSrc?: string;
+  sources?: SourceItem[];
+  caption?: string;
+  eager?: boolean;
+}
+
+const {
+  src,
+  alt,
+  fallbackSrc,
+  sources = [],
+  caption,
+  eager = false
+} = Astro.props;
+
+const hasSources = sources.length > 0 || Boolean(fallbackSrc);
+const getMimeType = (value: string) => {
+  if (value.endsWith(".avif")) return "image/avif";
+  if (value.endsWith(".webp")) return "image/webp";
+  if (value.endsWith(".png")) return "image/png";
+  if (value.endsWith(".jpg") || value.endsWith(".jpeg")) return "image/jpeg";
+  return undefined;
+};
+---
+
+<figure class="media-image">
+  {hasSources ? (
+    <picture>
+      {sources.map((source) => <source srcset={source.src} type={source.type ?? getMimeType(source.src)} />)}
+      <img
+        src={fallbackSrc ?? src}
+        alt={alt}
+        loading={eager ? "eager" : "lazy"}
+        decoding="async"
+        fetchpriority={eager ? "high" : "auto"}
+      />
+    </picture>
+  ) : (
+    <img
+      src={src}
+      alt={alt}
+      loading={eager ? "eager" : "lazy"}
+      decoding="async"
+      fetchpriority={eager ? "high" : "auto"}
+    />
+  )}
+  {caption && <figcaption>{caption}</figcaption>}
+</figure>
+
+<style>
+  .media-image {
+    margin: 0 0 1.4rem;
+    content-visibility: auto;
+    contain-intrinsic-size: 420px;
+  }
+
+  .media-image picture,
+  .media-image img {
+    display: block;
+    width: 100%;
+  }
+
+  .media-image img {
+    height: auto;
+    border-radius: var(--radius-sm);
+    border: 1px solid var(--border);
+    box-shadow: var(--shadow);
+    background: #f7f1e7;
+  }
+
+  .media-image figcaption {
+    margin-top: 0.65rem;
+    color: var(--muted);
+    font-size: 0.94rem;
+  }
+</style>

@@ -1,0 +1,104 @@
+---
+title: "SoftVision"
+subtitle: "AliceVision iOS版"
+date: 2024-03-11
+author: "Peihong"
+tags:
+  - SoftVision
+  - iOS
+---
+
+import MediaImage from "../../components/MediaImage.astro";
+
+[SoftVision](https://github.com/BigJohnn/SoftVision)对[AliceVision](https://github.com/alicevision/AliceVision)做了删减，为适配iOS，使用Metal重写了计算SGM（半高斯匹配）的CUDA部分。
+
+<MediaImage
+  src="/img/softvision/SoftVision.webp"
+  fallbackSrc="/img/softvision/SoftVision.png"
+  sources={[{ src: "/img/softvision/SoftVision.webp", type: "image/webp" }]}
+  alt="SoftVision"
+/>
+
+<MediaImage
+  src="/img/softvision/CamInit.webp"
+  fallbackSrc="/img/softvision/CamInit.png"
+  sources={[{ src: "/img/softvision/CamInit.webp", type: "image/webp" }]}
+  alt="Camera initialization"
+/>
+
+<MediaImage
+  src="/img/softvision/FeatureExtract.webp"
+  fallbackSrc="/img/softvision/FeatureExtract.png"
+  sources={[{ src: "/img/softvision/FeatureExtract.webp", type: "image/webp" }]}
+  alt="Feature extraction"
+/>
+
+<MediaImage
+  src="/img/softvision/FeatureMatching.webp"
+  fallbackSrc="/img/softvision/FeatureMatching.png"
+  sources={[{ src: "/img/softvision/FeatureMatching.webp", type: "image/webp" }]}
+  alt="Feature matching"
+/>
+
+<MediaImage
+  src="/img/softvision/SequentialSFM.webp"
+  fallbackSrc="/img/softvision/SequentialSFM.png"
+  sources={[{ src: "/img/softvision/SequentialSFM.webp", type: "image/webp" }]}
+  alt="Sequential SFM"
+/>
+
+<MediaImage
+  src="/img/softvision/Prepare DenseScene.webp"
+  fallbackSrc="/img/softvision/Prepare DenseScene.png"
+  sources={[{ src: "/img/softvision/Prepare DenseScene.webp", type: "image/webp" }]}
+  alt="Prepare DenseScene"
+/>
+
+<MediaImage
+  src="/img/softvision/DepthEstimation.webp"
+  fallbackSrc="/img/softvision/DepthEstimation.png"
+  sources={[{ src: "/img/softvision/DepthEstimation.webp", type: "image/webp" }]}
+  alt="Depth estimation"
+/>
+
+<MediaImage
+  src="/img/softvision/Meshing.webp"
+  fallbackSrc="/img/softvision/Meshing.png"
+  sources={[{ src: "/img/softvision/Meshing.webp", type: "image/webp" }]}
+  alt="Meshing"
+/>
+
+<MediaImage
+  src="/img/softvision/TextureMapping.webp"
+  fallbackSrc="/img/softvision/TextureMapping.png"
+  sources={[{ src: "/img/softvision/TextureMapping.webp", type: "image/webp" }]}
+  alt="Texture mapping"
+/>
+
+> Prepare Input Data: Essential SwiftUI for camera meta data aquirement, done.
+> (SIFT)Feature Extracting, done.
+
+> Image Matching, assumed to have done, todo.
+
+> (SIFT)Feature Matching done.
+
+> Structure From Motion done.
+
+> PrepareDenseScene done.
+
+ToDoList:
+
+> DepthMap. # with gpu, metal acc (translation done, but need more test)
+
+> DepthMapFilter.
+
+> Meshing.
+
+> MeshFiltering.
+
+> Texture Mapping.
+
+Note.
+```
+该项目不再更新， 后续拥抱3D-GS类新技术。
+```

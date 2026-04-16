@@ -14,6 +14,7 @@ tags:
   - Vision
   - Industrial Robotics
 cover: /img/qingtongxia/qingtongxia_demo.avif
+coverFallback: /img/qingtongxia/qingtongxia_demo.jpg
 coverAlt: 智能浇铸定位系统示意图
 relatedPostSlug: 2024-10-30-Qingtongxia
 order: 2

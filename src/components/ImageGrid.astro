@@ -2,6 +2,8 @@
 interface ImageItem {
   src: string;
   alt: string;
+  fallbackSrc?: string;
+  sources?: { src: string; type?: string }[];
 }
 
 interface Props {
@@ -28,14 +30,28 @@ const {
 <figure class="image-grid">
   <div class:list={["image-grid__items", `image-grid__items--${columns}`]}>
     {images.map((image, index) => (
-      <img
-        loading={eagerFirst && index === 0 ? "eager" : "lazy"}
-        decoding="async"
-        fetchpriority={eagerFirst && index === 0 ? "high" : "auto"}
-        sizes={sizes}
-        src={image.src}
-        alt={image.alt}
-      />
+      image.sources?.length || image.fallbackSrc ? (
+        <picture>
+          {image.sources?.map((source) => <source srcset={source.src} type={source.type} />)}
+          <img
+            loading={eagerFirst && index === 0 ? "eager" : "lazy"}
+            decoding="async"
+            fetchpriority={eagerFirst && index === 0 ? "high" : "auto"}
+            sizes={sizes}
+            src={image.fallbackSrc ?? image.src}
+            alt={image.alt}
+          />
+        </picture>
+      ) : (
+        <img
+          loading={eagerFirst && index === 0 ? "eager" : "lazy"}
+          decoding="async"
+          fetchpriority={eagerFirst && index === 0 ? "high" : "auto"}
+          sizes={sizes}
+          src={image.src}
+          alt={image.alt}
+        />
+      )
     ))}
   </div>
   {caption && <figcaption>{caption}</figcaption>}
@@ -63,6 +79,12 @@ const {
 
   .image-grid__items--4 {
     grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+
+  .image-grid picture,
+  .image-grid img {
+    display: block;
+    width: 100%;
   }
 
   .image-grid img {

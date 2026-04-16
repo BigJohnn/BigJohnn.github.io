@@ -23,13 +23,19 @@ const {
   tags = [],
   headings = []
 } = Astro.props;
+
+const imageSrc = image
+  ? image.startsWith("/") || image.startsWith("http://") || image.startsWith("https://")
+    ? image
+    : `/${image}`
+  : undefined;
 ---
 
 <BaseLayout
   title={`${title} | 项目清单`}
   description={description ?? subtitle}
   canonicalPath={canonicalPath}
-  image={image}
+  image={imageSrc}
   type="article"
 >
   <main>
@@ -42,9 +48,9 @@ const {
           {tags.map((tag) => <a class="tag" href={`/tags/${toTagSlug(tag)}/`}>{tag}</a>)}
         </div>
       )}
-      {image && (
+      {imageSrc && (
         <div class="post-hero__cover">
-          <img src={image} alt={title} loading="eager" />
+          <img src={imageSrc} alt={title} loading="eager" />
         </div>
       )}
     </section>

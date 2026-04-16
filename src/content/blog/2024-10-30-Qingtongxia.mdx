@@ -15,6 +15,7 @@ tags:
 
 import MediaVideo from "../../components/MediaVideo.astro";
 import ImageGrid from "../../components/ImageGrid.astro";
+import MediaImage from "../../components/MediaImage.astro";
 
 ## 项目背景
 
@@ -31,22 +32,33 @@ import ImageGrid from "../../components/ImageGrid.astro";
 ## 一些失败尝试
 
 <MediaVideo
-  src="/videos/bad_case.webm"
-  poster="/img/qingtongxia/optimized/bad-case-poster.webp"
+  poster="/img/qingtongxia/optimized/bad-case-poster.jpg"
+  sources={[
+    { src: "/videos/bad_case.mp4", type: "video/mp4" },
+    { src: "/videos/bad_case.webm", type: "video/webm" }
+  ]}
   title="高温点云丢失"
   caption="高温会同时影响 RGB 与深度信息，直接破坏点云质量。"
 />
 
 <MediaVideo
-  src="/videos/bad_align.webm"
-  poster="/img/qingtongxia/optimized/bad-align-poster.webp"
+  poster="/img/qingtongxia/optimized/bad-align-poster.jpg"
+  sources={[
+    { src: "/videos/bad_align.mp4", type: "video/mp4" },
+    { src: "/videos/bad_align.webm", type: "video/webm" }
+  ]}
   title="ICP 方案不稳定"
   caption="炭块尺寸误差和边缘点云误差会让 ICP 匹配出的目标点不稳定。"
 />
 
 ## 横向定位方案设计
 
-![浇铸定位系统整体示意图](/img/qingtongxia/qingtongxia_demo.avif)
+<MediaImage
+  src="/img/qingtongxia/qingtongxia_demo.avif"
+  fallbackSrc="/img/qingtongxia/qingtongxia_demo.jpg"
+  sources={[{ src: "/img/qingtongxia/qingtongxia_demo.avif", type: "image/avif" }]}
+  alt="浇铸定位系统整体示意图"
+/>
 
 浇铸机沿着平行于炭块板链的轨道移动，横移量直接决定浇点位置。对于操作员而言，判断每个钢柱两侧缝隙时，需要沿垂直于轨道的方向观察；这也是相机布局设计的依据。
 
@@ -59,10 +71,10 @@ import ImageGrid from "../../components/ImageGrid.astro";
 <ImageGrid
   columns={4}
   images={[
-    { src: "/img/qingtongxia/imgoriimage0.avif", alt: "炭碗原始图像 0" },
-    { src: "/img/qingtongxia/imgoriimage1.avif", alt: "炭碗原始图像 1" },
-    { src: "/img/qingtongxia/imgoriimage2.avif", alt: "炭碗原始图像 2" },
-    { src: "/img/qingtongxia/imgoriimage3.avif", alt: "炭碗原始图像 3" }
+    { src: "/img/qingtongxia/imgoriimage0.avif", fallbackSrc: "/img/qingtongxia/imgoriimage0.jpg", sources: [{ src: "/img/qingtongxia/imgoriimage0.avif", type: "image/avif" }], alt: "炭碗原始图像 0" },
+    { src: "/img/qingtongxia/imgoriimage1.avif", fallbackSrc: "/img/qingtongxia/imgoriimage1.jpg", sources: [{ src: "/img/qingtongxia/imgoriimage1.avif", type: "image/avif" }], alt: "炭碗原始图像 1" },
+    { src: "/img/qingtongxia/imgoriimage2.avif", fallbackSrc: "/img/qingtongxia/imgoriimage2.jpg", sources: [{ src: "/img/qingtongxia/imgoriimage2.avif", type: "image/avif" }], alt: "炭碗原始图像 2" },
+    { src: "/img/qingtongxia/imgoriimage3.avif", fallbackSrc: "/img/qingtongxia/imgoriimage3.jpg", sources: [{ src: "/img/qingtongxia/imgoriimage3.avif", type: "image/avif" }], alt: "炭碗原始图像 3" }
   ]}
   caption="4 路相机分别对准 4 个炭碗，构成同步观测输入。"
 />
@@ -77,10 +89,10 @@ import ImageGrid from "../../components/ImageGrid.astro";
 <ImageGrid
   columns={4}
   images={[
-    { src: "/img/qingtongxia/imgroi0.avif", alt: "ROI 处理结果 0" },
-    { src: "/img/qingtongxia/imgroi1.avif", alt: "ROI 处理结果 1" },
-    { src: "/img/qingtongxia/imgroi2.avif", alt: "ROI 处理结果 2" },
-    { src: "/img/qingtongxia/imgroi3.avif", alt: "ROI 处理结果 3" }
+    { src: "/img/qingtongxia/imgroi0.avif", fallbackSrc: "/img/qingtongxia/imgroi0.jpg", sources: [{ src: "/img/qingtongxia/imgroi0.avif", type: "image/avif" }], alt: "ROI 处理结果 0" },
+    { src: "/img/qingtongxia/imgroi1.avif", fallbackSrc: "/img/qingtongxia/imgroi1.jpg", sources: [{ src: "/img/qingtongxia/imgroi1.avif", type: "image/avif" }], alt: "ROI 处理结果 1" },
+    { src: "/img/qingtongxia/imgroi2.avif", fallbackSrc: "/img/qingtongxia/imgroi2.jpg", sources: [{ src: "/img/qingtongxia/imgroi2.avif", type: "image/avif" }], alt: "ROI 处理结果 2" },
+    { src: "/img/qingtongxia/imgroi3.avif", fallbackSrc: "/img/qingtongxia/imgroi3.jpg", sources: [{ src: "/img/qingtongxia/imgroi3.avif", type: "image/avif" }], alt: "ROI 处理结果 3" }
   ]}
   caption="ROI 级别的缝隙检测结果，用于后续反投影与位姿计算。"
 />
