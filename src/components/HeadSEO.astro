@@ -1,0 +1,48 @@
+---
+import { site } from "../data/site";
+
+interface Props {
+  title?: string;
+  description?: string;
+  canonicalPath?: string;
+  image?: string;
+  type?: "website" | "article";
+}
+
+const {
+  title = site.seoTitle,
+  description = site.description,
+  canonicalPath = "/",
+  image = "/img/about-bg.jpg",
+  type = "website"
+} = Astro.props;
+
+const canonical = new URL(canonicalPath, site.siteUrl).toString();
+const imageUrl = new URL(image, site.siteUrl).toString();
+---
+
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<meta name="description" content={description} />
+<link rel="canonical" href={canonical} />
+<link rel="icon" href="/img/favicon.ico" />
+<meta property="og:type" content={type} />
+<meta property="og:site_name" content={site.title} />
+<meta property="og:locale" content={site.locale} />
+<meta property="og:title" content={title} />
+<meta property="og:description" content={description} />
+<meta property="og:url" content={canonical} />
+<meta property="og:image" content={imageUrl} />
+<meta name="twitter:card" content="summary_large_image" />
+<meta name="twitter:title" content={title} />
+<meta name="twitter:description" content={description} />
+<meta name="twitter:image" content={imageUrl} />
+<title>{title}</title>
+<script type="application/ld+json" set:html={JSON.stringify({
+  "@context": "https://schema.org",
+  "@type": type === "article" ? "Article" : "WebSite",
+  name: title,
+  description,
+  url: canonical,
+  image: imageUrl
+})} />

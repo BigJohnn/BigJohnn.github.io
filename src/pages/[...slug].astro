@@ -1,0 +1,31 @@
+---
+import { getCollection, render } from "astro:content";
+import PostLayout from "../layouts/PostLayout.astro";
+import { formatZhDate, toLegacySegments } from "../utils/legacy";
+
+export async function getStaticPaths() {
+  const posts = await getCollection("blog");
+  return posts.map((post) => ({
+    params: { slug: toLegacySegments(post.id, post.data.date).join("/") },
+    props: { post }
+  }));
+}
+
+const { post } = Astro.props;
+const { Content, headings } = await render(post);
+const canonicalPath = `/${toLegacySegments(post.id, post.data.date).join("/")}/`;
+const dateLabel = formatZhDate(post.data.date);
+---
+
+<PostLayout
+  title={post.data.title}
+  subtitle={post.data.subtitle}
+  description={post.data.description}
+  canonicalPath={canonicalPath}
+  image={post.data["header-img"]}
+  dateLabel={dateLabel}
+  tags={post.data.tags}
+  headings={headings}
+>
+  <Content />
+</PostLayout>

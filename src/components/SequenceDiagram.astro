@@ -1,0 +1,96 @@
+---
+interface Message {
+  from: string;
+  to: string;
+  label: string;
+  note?: string;
+}
+
+interface Props {
+  title?: string;
+  participants: string[];
+  messages: Message[];
+}
+
+const { title, participants, messages } = Astro.props;
+---
+
+<figure class="sequence-diagram" aria-label={title}>
+  <div class="sequence-diagram__participants">
+    {participants.map((participant) => (
+      <div class="sequence-diagram__participant">
+        <span>{participant}</span>
+      </div>
+    ))}
+  </div>
+  <div class="sequence-diagram__messages">
+    {messages.map((message) => (
+      <div class="sequence-diagram__message">
+        <div class="sequence-diagram__meta">
+          <strong>{message.from}</strong>
+          <span>→</span>
+          <strong>{message.to}</strong>
+        </div>
+        <div class="sequence-diagram__label">{message.label}</div>
+        {message.note && <div class="sequence-diagram__note">{message.note}</div>}
+      </div>
+    ))}
+  </div>
+</figure>
+
+<style>
+  .sequence-diagram {
+    margin: 0 0 1.4rem;
+    padding: 1rem;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    background: linear-gradient(180deg, rgba(255, 255, 255, 0.78), rgba(247, 241, 231, 0.9));
+    box-shadow: var(--shadow);
+  }
+
+  .sequence-diagram__participants {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(12rem, 1fr));
+    gap: 0.8rem;
+    margin-bottom: 1rem;
+  }
+
+  .sequence-diagram__participant {
+    padding: 0.8rem 1rem;
+    border-radius: var(--radius-sm);
+    background: rgba(13, 108, 99, 0.08);
+    border: 1px solid rgba(13, 108, 99, 0.18);
+    text-align: center;
+    font-weight: 700;
+  }
+
+  .sequence-diagram__messages {
+    display: grid;
+    gap: 0.8rem;
+  }
+
+  .sequence-diagram__message {
+    padding: 0.9rem 1rem;
+    border-radius: var(--radius-sm);
+    background: rgba(255, 255, 255, 0.72);
+    border: 1px solid var(--border);
+  }
+
+  .sequence-diagram__meta {
+    display: flex;
+    gap: 0.5rem;
+    align-items: center;
+    color: var(--accent-strong);
+    margin-bottom: 0.35rem;
+  }
+
+  .sequence-diagram__label {
+    font-size: 0.96rem;
+  }
+
+  .sequence-diagram__note {
+    margin-top: 0.45rem;
+    color: var(--muted);
+    font-size: 0.9rem;
+  }
+</style>

@@ -1,0 +1,26 @@
+---
+import { toTagSlug } from "../utils/tags";
+
+interface Props {
+  href: string;
+  title: string;
+  subtitle?: string;
+  description?: string;
+  dateLabel: string;
+  tags?: string[];
+}
+
+const { href, title, subtitle, description, dateLabel, tags = [] } = Astro.props;
+---
+
+<article class="card panel">
+  <p class="meta">{dateLabel}</p>
+  <h3><a href={href}>{title}</a></h3>
+  {subtitle && <p><strong>{subtitle}</strong></p>}
+  {description && <p>{description}</p>}
+  {tags.length > 0 && (
+    <div class="tag-list" aria-label="Tags">
+      {tags.slice(0, 4).map((tag) => <a class="tag" href={`/tags/${toTagSlug(tag)}/`}>{tag}</a>)}
+    </div>
+  )}
+</article>

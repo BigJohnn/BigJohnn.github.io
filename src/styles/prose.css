@@ -1,0 +1,68 @@
+.prose {
+  max-width: var(--measure);
+  font-size: 1rem;
+  line-height: 1.85;
+}
+
+.prose h1,
+.prose h2,
+.prose h3,
+.prose h4 {
+  line-height: 1.2;
+  margin-top: 2rem;
+  margin-bottom: 0.7rem;
+}
+
+.prose p,
+.prose ul,
+.prose ol,
+.prose blockquote,
+.prose table,
+.prose pre,
+.prose figure {
+  margin-top: 0;
+  margin-bottom: 1.2rem;
+}
+
+.prose blockquote {
+  margin-left: 0;
+  padding-left: 1rem;
+  border-left: 3px solid var(--accent);
+  color: var(--muted);
+}
+
+.prose pre,
+.prose code {
+  font-family: "SFMono-Regular", "JetBrains Mono", "Fira Code", monospace;
+}
+
+.prose pre {
+  overflow-x: auto;
+  padding: 1rem;
+  border-radius: var(--radius-sm);
+  background: #1c211f;
+  color: #f2efe8;
+}
+
+.prose table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.prose th,
+.prose td {
+  padding: 0.65rem;
+  border: 1px solid var(--border);
+}
+
+.prose hr {
+  border: 0;
+  border-top: 1px solid var(--border);
+  margin: 2rem 0;
+}
+
+.heading-anchor {
+  margin-left: 0.45rem;
+  color: var(--muted);
+  text-decoration: none;
+}

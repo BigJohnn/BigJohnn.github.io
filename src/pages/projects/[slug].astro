@@ -1,0 +1,36 @@
+---
+import { getCollection, render } from "astro:content";
+import PageLayout from "../../layouts/PageLayout.astro";
+
+export async function getStaticPaths() {
+  const projects = await getCollection("projects");
+  return projects.map((project) => ({
+    params: { slug: project.id },
+    props: { project }
+  }));
+}
+
+const { project } = Astro.props;
+const { Content } = await render(project);
+---
+
+<PageLayout
+  title={project.data.title}
+  description={project.data.description}
+  canonicalPath={`/projects/${project.id}/`}
+>
+  <section class="section">
+    <div class="tag-list">
+      <span class="tag">{project.data.status}</span>
+      {project.data.tech.map((item: string) => <span class="tag">{item}</span>)}
+    </div>
+    <article class="prose">
+      <Content />
+    </article>
+    <div class="tag-list">
+      {project.data.repo && <a class="tag" href={project.data.repo}>Repository</a>}
+      {project.data.demo && <a class="tag" href={project.data.demo}>Demo</a>}
+      {project.data.relatedPostSlug && <a class="tag" href="/blog/">关联文章已迁入 Blog</a>}
+    </div>
+  </section>
+</PageLayout>

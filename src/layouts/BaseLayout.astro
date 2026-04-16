@@ -1,0 +1,29 @@
+---
+import "../styles/global.css";
+import HeadSEO from "../components/HeadSEO.astro";
+import SiteNav from "../components/SiteNav.astro";
+import Footer from "../components/Footer.astro";
+import { site } from "../data/site";
+
+interface Props {
+  title?: string;
+  description?: string;
+  canonicalPath?: string;
+  image?: string;
+  type?: "website" | "article";
+}
+
+const props = Astro.props;
+---
+
+<!doctype html>
+<html lang={site.lang}>
+  <head>
+    <HeadSEO {...props} />
+  </head>
+  <body>
+    <SiteNav />
+    <slot />
+    <Footer />
+  </body>
+</html>

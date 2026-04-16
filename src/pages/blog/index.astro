@@ -1,0 +1,32 @@
+---
+import { getCollection } from "astro:content";
+import PageLayout from "../../layouts/PageLayout.astro";
+import PostCard from "../../components/PostCard.astro";
+import { formatZhDate, toLegacyPath } from "../../utils/legacy";
+
+const blogEntries = (await getCollection("blog"))
+  .filter((entry) => !entry.data.draft)
+  .sort((a, b) => b.data.date.getTime() - a.data.date.getTime());
+
+---
+
+<PageLayout title="文章" description="技术笔记、项目记录与开源观察。" canonicalPath="/blog/">
+  <section class="section">
+    <div class="section__title">
+      <h2>全部文章</h2>
+      <p class="meta">{blogEntries.length} 篇</p>
+    </div>
+    <div class="grid grid--two">
+      {blogEntries.map((entry) => (
+        <PostCard
+          href={toLegacyPath(entry.id, entry.data.date)}
+          title={entry.data.title}
+          subtitle={entry.data.subtitle}
+          description={entry.data.description}
+          dateLabel={formatZhDate(entry.data.date)}
+          tags={entry.data.tags}
+        />
+      ))}
+    </div>
+  </section>
+</PageLayout>

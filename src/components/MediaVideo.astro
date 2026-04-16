@@ -1,0 +1,59 @@
+---
+interface Props {
+  src: string;
+  title?: string;
+  caption?: string;
+  poster?: string;
+  preload?: "none" | "metadata" | "auto";
+  width?: number;
+  height?: number;
+}
+
+const {
+  src,
+  title,
+  caption,
+  poster,
+  preload = "none",
+  width = 16,
+  height = 9
+} = Astro.props;
+---
+
+<figure class="media-video">
+  <video
+    controls
+    playsinline
+    preload={preload}
+    poster={poster}
+    title={title}
+    style={`aspect-ratio:${width} / ${height};`}
+  >
+    <source src={src} type="video/webm" />
+    您的浏览器不支持 HTML5 视频。
+  </video>
+  {caption && <figcaption>{caption}</figcaption>}
+</figure>
+
+<style>
+  .media-video {
+    margin: 0 0 1.4rem;
+    content-visibility: auto;
+    contain-intrinsic-size: 360px;
+  }
+
+  .media-video video {
+    width: 100%;
+    height: auto;
+    border-radius: var(--radius-sm);
+    border: 1px solid var(--border);
+    background: #0d1110;
+    box-shadow: var(--shadow);
+  }
+
+  .media-video figcaption {
+    margin-top: 0.65rem;
+    color: var(--muted);
+    font-size: 0.94rem;
+  }
+</style>

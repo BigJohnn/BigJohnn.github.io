@@ -1,0 +1,84 @@
+---
+import { getCollection } from "astro:content";
+import BaseLayout from "../layouts/BaseLayout.astro";
+import PostCard from "../components/PostCard.astro";
+import ProjectCard from "../components/ProjectCard.astro";
+import { site } from "../data/site";
+import { formatZhDate, toLegacyPath } from "../utils/legacy";
+import { toTagSlug } from "../utils/tags";
+
+const blogEntries = (await getCollection("blog"))
+  .filter((entry) => !entry.data.draft)
+  .sort((a, b) => b.data.date.getTime() - a.data.date.getTime());
+
+const projectEntries = (await getCollection("projects"))
+  .sort((a, b) => a.data.order - b.data.order)
+  .slice(0, 3);
+
+const tagSet = new Set<string>();
+for (const entry of blogEntries) {
+  for (const tag of entry.data.tags ?? []) {
+    tagSet.add(tag);
+  }
+}
+const tags = [...tagSet].sort((a, b) => a.localeCompare(b, "zh-CN")).slice(0, 18);
+---
+
+<BaseLayout title={site.seoTitle} description={site.description} canonicalPath="/">
+  <main>
+    <section class="shell hero">
+      <span class="hero__eyebrow">Peihong / Projects</span>
+      <h1>机器人、三维视觉与真实工程项目。</h1>
+      <p>
+        这里记录我做过的项目、技术笔记和工程实践，重点围绕机器人系统、三维重建、工业视觉和具身智能原型。
+      </p>
+    </section>
+
+    <section class="shell section">
+      <div class="section__title">
+        <h2>精选项目</h2>
+        <a href="/projects/">查看全部</a>
+      </div>
+      <div class="grid grid--three">
+        {projectEntries.map((project) => (
+          <ProjectCard
+            href={`/projects/${project.id}/`}
+            title={project.data.title}
+            description={project.data.description}
+            status={project.data.status}
+            tech={project.data.tech}
+          />
+        ))}
+      </div>
+    </section>
+
+    <section class="shell section">
+      <div class="section__title">
+        <h2>最新文章</h2>
+        <a href="/blog/">进入文章列表</a>
+      </div>
+      <div class="grid grid--two">
+        {blogEntries.slice(0, 6).map((entry) => (
+          <PostCard
+            href={toLegacyPath(entry.id, entry.data.date)}
+            title={entry.data.title}
+            subtitle={entry.data.subtitle}
+            description={entry.data.description}
+            dateLabel={formatZhDate(entry.data.date)}
+            tags={entry.data.tags}
+          />
+        ))}
+      </div>
+    </section>
+
+    <section class="shell section">
+      <div class="section__title">
+        <h2>主题标签</h2>
+        <a href="/tags/">查看归档</a>
+      </div>
+      <div class="tag-list">
+        {tags.map((tag) => <a class="tag" href={`/tags/${toTagSlug(tag)}/`}>{tag}</a>)}
+      </div>
+    </section>
+  </main>
+</BaseLayout>

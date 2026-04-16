@@ -1,0 +1,74 @@
+---
+interface Props {
+  title?: string;
+  steps: string[];
+}
+
+const { title, steps } = Astro.props;
+---
+
+<figure class="step-flow" aria-label={title}>
+  <div class="step-flow__track">
+    {steps.map((step, index) => (
+      <>
+        <div class="step-flow__step">
+          <span class="step-flow__index">{index + 1}</span>
+          <span class="step-flow__label">{step}</span>
+        </div>
+        {index < steps.length - 1 && <span class="step-flow__arrow" aria-hidden="true">→</span>}
+      </>
+    ))}
+  </div>
+</figure>
+
+<style>
+  .step-flow {
+    margin: 0 0 1.4rem;
+  }
+
+  .step-flow__track {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.8rem;
+    padding: 1rem;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    background: linear-gradient(180deg, rgba(255, 255, 255, 0.78), rgba(247, 241, 231, 0.9));
+    box-shadow: var(--shadow);
+  }
+
+  .step-flow__step {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.7rem;
+    min-height: 3rem;
+    padding: 0.7rem 0.9rem;
+    border-radius: 999px;
+    border: 1px solid rgba(13, 108, 99, 0.18);
+    background: rgba(13, 108, 99, 0.08);
+  }
+
+  .step-flow__index {
+    display: inline-grid;
+    place-items: center;
+    width: 1.8rem;
+    height: 1.8rem;
+    border-radius: 999px;
+    background: var(--accent);
+    color: white;
+    font-size: 0.82rem;
+    font-weight: 700;
+  }
+
+  .step-flow__label {
+    font-size: 0.95rem;
+    color: var(--text);
+  }
+
+  .step-flow__arrow {
+    color: var(--accent);
+    font-size: 1.3rem;
+    font-weight: 700;
+  }
+</style>

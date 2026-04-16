@@ -1,0 +1,70 @@
+---
+import BaseLayout from "./BaseLayout.astro";
+import { toTagSlug } from "../utils/tags";
+
+interface Props {
+  title: string;
+  subtitle?: string;
+  description?: string;
+  canonicalPath: string;
+  image?: string;
+  dateLabel: string;
+  tags?: string[];
+  headings?: { depth: number; slug: string; text: string }[];
+}
+
+const {
+  title,
+  subtitle,
+  description,
+  canonicalPath,
+  image,
+  dateLabel,
+  tags = [],
+  headings = []
+} = Astro.props;
+---
+
+<BaseLayout
+  title={`${title} | 项目清单`}
+  description={description ?? subtitle}
+  canonicalPath={canonicalPath}
+  image={image}
+  type="article"
+>
+  <main>
+    <section class="shell post-hero">
+      <span class="hero__eyebrow">{dateLabel}</span>
+      <h1>{title}</h1>
+      {subtitle && <p>{subtitle}</p>}
+      {tags.length > 0 && (
+        <div class="tag-list">
+          {tags.map((tag) => <a class="tag" href={`/tags/${toTagSlug(tag)}/`}>{tag}</a>)}
+        </div>
+      )}
+      {image && (
+        <div class="post-hero__cover">
+          <img src={image} alt={title} loading="eager" />
+        </div>
+      )}
+    </section>
+
+    <section class="shell section content-shell">
+      <article class="prose">
+        <slot />
+      </article>
+      {headings.length > 1 && (
+        <aside class="panel toc" aria-label="Table of contents">
+          <h2>目录</h2>
+          <ul>
+            {headings
+              .filter((heading) => heading.depth <= 3)
+              .map((heading) => (
+                <li><a href={`#${heading.slug}`}>{heading.text}</a></li>
+              ))}
+          </ul>
+        </aside>
+      )}
+    </section>
+  </main>
+</BaseLayout>

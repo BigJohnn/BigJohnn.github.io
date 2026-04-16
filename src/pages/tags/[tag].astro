@@ -1,0 +1,53 @@
+---
+import { getCollection } from "astro:content";
+import PageLayout from "../../layouts/PageLayout.astro";
+import PostCard from "../../components/PostCard.astro";
+import { formatZhDate, toLegacyPath } from "../../utils/legacy";
+import { toTagSlug } from "../../utils/tags";
+
+export async function getStaticPaths() {
+  const posts = await getCollection("blog");
+  const tags = new Set<string>();
+  for (const post of posts) {
+    for (const tag of post.data.tags ?? []) {
+      tags.add(tag);
+    }
+  }
+
+  return [...tags].map((tag) => ({
+    params: { tag: toTagSlug(tag) },
+    props: { tag }
+  }));
+}
+
+const { tag } = Astro.props;
+const posts = (await getCollection("blog"))
+  .filter((entry) => (entry.data.tags ?? []).includes(tag))
+  .sort((a, b) => b.data.date.getTime() - a.data.date.getTime());
+
+---
+
+<PageLayout
+  title={`标签：${tag}`}
+  description={`所有带有 ${tag} 标签的文章。`}
+  canonicalPath={`/tags/${toTagSlug(tag)}/`}
+>
+  <section class="section">
+    <div class="section__title">
+      <h2>{tag}</h2>
+      <p class="meta">{posts.length} 篇文章</p>
+    </div>
+    <div class="grid grid--two">
+      {posts.map((entry) => (
+        <PostCard
+          href={toLegacyPath(entry.id, entry.data.date)}
+          title={entry.data.title}
+          subtitle={entry.data.subtitle}
+          description={entry.data.description}
+          dateLabel={formatZhDate(entry.data.date)}
+          tags={entry.data.tags}
+        />
+      ))}
+    </div>
+  </section>
+</PageLayout>

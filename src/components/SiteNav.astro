@@ -1,0 +1,14 @@
+---
+import { navItems } from "../data/nav";
+---
+
+<header class="site-nav">
+  <div class="site-nav__inner">
+    <a class="site-nav__brand" href="/">项目清单 / Peihong</a>
+    <nav aria-label="Main navigation">
+      <ul class="site-nav__links">
+        {navItems.map((item) => <li><a href={item.href}>{item.label}</a></li>)}
+      </ul>
+    </nav>
+  </div>
+</header>

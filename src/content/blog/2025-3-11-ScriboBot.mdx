@@ -1,0 +1,96 @@
+---
+title: "写字机器人"
+subtitle: "ApplePencil + Franka阻抗控制"
+date: 2025-03-11
+author: "Peihong"
+description: "用 Apple Pencil 采集书写轨迹，经 Proto3 和 ZeroMQ 传输到机器人控制端，驱动 Franka 复现书写动作。"
+tags:
+  - iPad
+  - Apple Pencil
+  - Franka Robot
+---
+
+import StepFlow from "../../components/StepFlow.astro";
+import SequenceDiagram from "../../components/SequenceDiagram.astro";
+
+## 简介
+
+这篇内容更适合以“系统设计页”的方式呈现，而不是单纯的长段说明。核心目标是把 **Apple Pencil 的书写轨迹** 稳定采集出来，并通过跨语言通信链路送到机器人控制端，让 Franka 复现书写过程。
+
+## 系统概览
+
+```text
+Apple Pencil -> Swift 采集层 -> Proto3 序列化 -> ZeroMQ -> Python 控制端 -> Franka Robot
+```
+
+### 项目概述
+
+通过 Apple Pencil 采集书写轨迹数据，使用 Proto3 协议序列化，再通过 ZeroMQ 在 Swift 与 Python 间传输，最终控制机器人执行轨迹复现。
+
+## 技术架构
+
+<StepFlow
+  title="Apple Pencil 轨迹处理链路"
+  steps={[
+    "Apple Pencil",
+    "Swift 数据采集",
+    "Proto3 序列化",
+    "ZeroMQ 传输",
+    "Python 机器人控制"
+  ]}
+/>
+
+## 开发环境配置
+
+### 依赖安装
+
+```bash
+# Swift 环境
+brew install protobuf swift-protobuf
+
+# Python 环境
+pip install pyzmq protobuf
+```
+
+### Xcode 包依赖
+
+```text
+File > Add Package Dependencies > 添加 protobuf 与 zeromq 的 Swift binding
+```
+
+### 代码生成
+
+```bash
+# Swift 代码生成（需先安装 swift-protobuf）
+protoc --swift_out=. stroke.proto
+
+# Python 代码生成
+protoc --python_out=. stroke.proto
+```
+
+## 通信模式
+
+<SequenceDiagram
+  title="Pad 与 Robot 之间的 REQ/REP 通信"
+  participants={["Pad (Client)", "Robot (Server)"]}
+  messages={[
+    {
+      from: "Pad (Client)",
+      to: "Robot (Server)",
+      label: "REQ: StrokeArray 数据"
+    },
+    {
+      from: "Robot (Server)",
+      to: "Pad (Client)",
+      label: "REP: 执行结果",
+      note: "服务端接收轨迹、处理后返回执行状态。"
+    }
+  ]}
+/>
+
+## 适合下一步继续补充的内容
+
+- 轨迹采样频率与平滑策略
+- 压感、倾角等额外维度是否进入协议
+- 机器人端的轨迹重参数化与阻抗控制接口
+- 失败案例与误差分析
