@@ -12,7 +12,7 @@ export interface FeaturedItem {
 const curatedProjectIds = ["minsop", "huaikan", "qingtongxia"];
 const curatedBlogMeta: Record<string, Omit<FeaturedItem, "href" | "title">> = {
   "2024-11-20-lerobot": {
-    description: "相对社区主线，这边对 Lerobot 的贡献主要落在 FR3 实机闭环、Hikrobot 相机、触觉、回放和 MuJoCo 仿真。",
+    description: "相对社区主线，Lerobot 的贡献主要落在 FR3 实机闭环、Hikrobot 相机、触觉、回放和 MuJoCo 仿真。",
     status: "开源项目",
     tech: ["FR3", "Hikrobot", "ACT", "Tactile", "MuJoCo"]
   },
