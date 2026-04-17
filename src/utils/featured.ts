@@ -12,9 +12,9 @@ export interface FeaturedItem {
 const curatedProjectIds = ["minsop", "huaikan", "qingtongxia"];
 const curatedBlogMeta: Record<string, Omit<FeaturedItem, "href" | "title">> = {
   "2024-11-20-lerobot": {
-    description: "围绕 SO100 低成本机械臂展开的开源具身智能实验，覆盖数据采集、策略训练与评估。",
+    description: "相对社区主线，这边对 Lerobot 的贡献主要落在 FR3 实机闭环、Hikrobot 相机、触觉、回放和 MuJoCo 仿真。",
     status: "开源项目",
-    tech: ["SO100", "ACT policy", "TDMPC policy", "Diffusion policy", "3D Print"]
+    tech: ["FR3", "Hikrobot", "ACT", "Tactile", "MuJoCo"]
   },
   "2024-11-20-zeroth01": {
     description: "面向低成本人形机器人的开源实践，覆盖硬件搭建、仿真、强化学习与部署验证。",
