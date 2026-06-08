@@ -9,7 +9,7 @@ export interface FeaturedItem {
   tech: string[];
 }
 
-const curatedProjectIds = ["minsop", "huaikan", "qingtongxia"];
+const curatedProjectIds = ["ego-umi-data-collection", "minsop", "qingtongxia"];
 const curatedBlogMeta: Record<string, Omit<FeaturedItem, "href" | "title">> = {
   "2024-11-20-lerobot": {
     description: "相对社区主线，Lerobot 的贡献主要落在 FR3 实机闭环、Hikrobot 相机、触觉、回放和 MuJoCo 仿真。",
