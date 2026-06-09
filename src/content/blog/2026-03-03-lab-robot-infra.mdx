@@ -1,0 +1,195 @@
+---
+title: "实验室infra：机器人基础设施的架构与工程边界"
+subtitle: "从硬件抽象、运动控制、遥操作、数据采集到策略推理的一体化平台"
+date: 2026-03-03T10:00:00+08:00
+author: "Peihong"
+description: "系统梳理实验室infra的整体架构、核心模块、配置治理、机器人接入、控制闭环、数据采集、遥操作、推理部署、仿真标定与扩展方式。"
+tags:
+  - Robotics Infra
+  - Robot Control
+  - Teleoperation
+  - LeRobot
+  - Simulation
+---
+
+import MermaidBlock from "../../components/MermaidBlock.astro";
+
+## 为什么需要一套实验室机器人 infra
+
+在实验室做机器人项目，真正消耗时间的往往不是某一个算法本身，而是算法和真实系统之间的连接层。机械臂、夹爪、相机、力传感器、触觉、仿真和策略推理都要接入；同一套策略还可能在单臂、双臂、全身平台之间切换。每换一次硬件都重新写脚本，项目很快会变成一堆不可维护的 demo。
+
+实验室infra的定位，就是把这些重复链路收束起来。它不是单独的控制器脚本，也不是只为某个任务写的数据采集工具，而是一套围绕“实验可重复、组件可组合、链路可扩展”设计的运行时基础设施。它把机器人硬件、控制器、运动学模型、轨迹规划、平滑器、遥操作设备、视觉处理器、数据写入器、推理入口和仿真系统放进同一套配置与工厂体系里。上层用户面对 `RobotMotion`、`MotionFactory`、`RobotFactory` 这类组合接口；底层硬件通过 `ArmBase`、`ToolBase`、`CameraBase`、`FTBase`、`TactileBase` 等 base class 接入。
+
+它的核心目标不是让所有机器人变得“一样”，而是把差异放到清晰的位置：硬件进入 `hardware/`，运动学进入 `motion/config` 和 URDF，控制策略进入 `controller/config`，任务进入 `teleop/config` 或 `factory/tasks`，数据格式进入 `dataset/`。边界守住后，新增机器人、任务或学习策略时，就不需要从零拼一条工程链路。
+
+## 总体架构：配置驱动的机器人运行时
+
+实验室infra可以分成三层：资源层、装配层和任务层。资源层提供机器人、工具、传感器、模型、控制器、平滑器、视觉与仿真组件；装配层用 `RobotFactory` 和 `MotionFactory` 根据 YAML 把组件组合起来；任务层负责遥操作、数据采集、策略推理、DAgger 接管、轨迹执行和自定义任务逻辑。
+
+<MermaidBlock
+  title="实验室infra分层架构"
+  renderWidth="1040px"
+  chart={`flowchart TB
+    subgraph Task[任务层 / Task Layer]
+      A1[teleop/teleoperation.py]
+      A2[factory/tasks/robot_motion.py]
+      A3[inferences_tasks: ACT / Pi0 / DP / VLASH]
+      A4[custom task / replay / random start]
+    end
+
+    subgraph Assembly[装配层 / Factory Layer]
+      B1[RobotMotion 高层 API]
+      B2[MotionFactory: model + controller + planner]
+      B3[RobotFactory: robot + tool + sensors + sim]
+      B4[dynamic_load_yaml + !include]
+    end
+
+    subgraph Resource[资源层 / Component Layer]
+      C1[hardware: single arm / dual arm / whole-body]
+      C2[controller: IK / impedance / WBIK / duo]
+      C3[motion: kinematics + IK adapters]
+      C4[smoother: Ruckig / critical damped]
+      C5[vision: segmentation / no-op]
+      C6[dataset: writer / reader / manifest]
+      C7[simulation: physics sim / ROS2 bridge]
+    end
+
+    A1 --> B2
+    A2 --> B1
+    A3 --> B1
+    A4 --> B2
+    B1 --> B2
+    B2 --> B3
+    B4 --> B2
+    B4 --> B3
+    B3 --> C1
+    B3 --> C5
+    B3 --> C7
+    B2 --> C2
+    B2 --> C3
+    B2 --> C4
+    B1 --> C6`}/>
+
+从运行角度看，最重要的是 `motion_config`。它不是普通参数文件，而是机器人系统的装配蓝图：当前使用哪一种机器人、哪一种夹爪、是否连接真实硬件、是否启用仿真、使用什么运动学模型、哪个控制器、控制频率是多少、是否启用 smoother、相机和传感器如何挂载、视觉 pipeline 是否开启、异步控制是否启用，都在这里决定。
+
+入口配置通常再包一层：遥操作配置指定设备和控制模式，推理配置指定 checkpoint、动作/观测类型和 episode 约束，数据采集配置指定保存路径、可视化和采样频率。最终它们都向下展开到同一套 robot-motion 运行时。只要模型维度和 controller config 对齐，上层任务代码不需要随硬件切换大改。
+
+## RobotFactory：硬件、工具、传感器与仿真的收口
+
+`RobotFactory` 是硬件侧核心。它根据 config 创建机器人本体、夹爪/灵巧手、相机、力传感器、触觉传感器、仿真器和视觉流水线，并用 `_robot_classes`、`_gripper_classes`、`_camera_classes`、`_tactile_classes`、`_ft_classes`、`_simulation_classes` 等注册表管理组件类型。机器人侧覆盖单臂、双臂和全身平台；工具、相机、触觉、力传感和仿真都通过同样机制接入。
+
+注册表机制把“新增硬件”变成可控流程：先实现对应 base class，再在 factory 注册，再在 YAML 里选择类型。新增机械臂不应直接在任务脚本里写 SDK 调用，而应实现 `ArmBase`，提供初始化、状态读取、关节命令下发、错误恢复和关闭逻辑。新增夹爪实现 `ToolBase`，新增相机实现 `CameraBase`，新增触觉实现 `TactileBase`。这样硬件接入能被测试、复用，也能让上层任务保持稳定。
+
+RobotFactory 还承担状态缓存、延迟估计和补偿。真实机器人系统里，高层策略或遥操作主循环通常只有 10-60 Hz，而底层控制和状态反馈可能在数百 Hz。没有状态缓存和延迟补偿，高层看到的“当前状态”会偏离硬件实际状态，遥操作、DAgger 接管和学习策略也更容易学到滞后的动作-观测关系。
+
+视觉 pipeline 也挂在 RobotFactory 侧。`vision_config` 可以创建处理器流水线，处理器包括 no-op、颜色变换、分割模型等。视觉结果作为 robot system 的附加状态被读取，而不是硬编码进控制器。这使视觉可以服务于遥操作展示、数据采集、规则任务和学习策略，同时不污染底层控制接口。
+
+## MotionFactory：从高层目标到关节命令
+
+如果说 RobotFactory 解决“我连接了什么”，MotionFactory 解决的就是“目标怎么变成命令”。它负责创建运动学模型、控制器、轨迹 planner 和控制线程。模型、控制器和轨迹 planner 都通过注册表创建，覆盖 IK、阻抗、全身 IK、笛卡尔阻抗、双臂控制和 Cartesian polynomial 等路径。控制线程按 `control_frequency` 运行，读取高层目标或轨迹 buffer，计算控制器输出，再通过 RobotFactory 下发到硬件或仿真。
+
+<MermaidBlock
+  title="MotionFactory 控制闭环"
+  renderWidth="980px"
+  chart={`sequenceDiagram
+    participant Task as Teleop / Inference / Custom Task
+    participant MF as MotionFactory
+    participant Ctrl as Controller
+    participant Model as RobotModel
+    participant RF as RobotFactory
+    participant HW as Hardware / Simulation
+
+    Task->>MF: update_high_level_command(pose / joint / tool)
+    loop control_frequency
+      MF->>RF: get_joint_states or timestamped state
+      RF-->>MF: RobotJointState
+      MF->>Ctrl: compute_controller(target, robot_state)
+      Ctrl->>Model: FK / IK / Jacobian / limits
+      Model-->>Ctrl: kinematics result
+      Ctrl-->>MF: joint_target + joint_mode
+      MF->>RF: set_joint_commands(target, mode)
+      RF->>HW: robot.set_joint_command / sim.set_joint_command
+    end`}/>
+
+这里有三个关键点。这里有三个关键点。第一，高层位姿采用 7D pose：`[x, y, z, qx, qy, qz, qw]`。第二，控制器和模型分离，URDF、base link、end effector link、joint limit 和模型类型进入 `motion/config`，控制器只消费模型接口。第三，高层命令和底层控制可以不同频；结合 smoother 和异步控制后，机器人接收的命令保持连续，而不是随策略输出频率形成阶梯。
+
+## Smoother 与异步控制：低频策略和高频执行的桥
+
+机器人学习策略、视觉语言动作模型和遥操作设备通常不以高频输出命令。ACT、Diffusion Policy、Pi0 系列模型更常见的是 action chunk 或 10-50 Hz 动作流；三维鼠标、键盘、XR 或外骨骼也会受到设备刷新率和 Python 调度影响。真实机械臂却需要更高频、更平滑、更稳定的控制输入。实验室infra用 smoother 和异步控制把这两个频率域分开。
+
+`smoother/` 目录里有 Ruckig、临界阻尼和自适应临界阻尼等实现。异步控制进一步把目标更新和命令发送解耦：高层调用只更新 smoother 目标并立即返回，后台线程以 `async_control_frequency` 持续取 smoother 输出并发送到硬件或仿真。这样主循环可以低频运行，底层仍然保持高频命令。
+
+这对学习系统尤其重要。策略推理通常还包含图像预处理、GPU 推理、动作反归一化、限幅、安全检查和日志记录，单步耗时不稳定。如果把这些全部绑在硬件下发线程上，一次推理抖动就会造成控制周期抖动。异步模式把策略侧 jitter 隔离到目标更新，底层命令发送更稳定。
+
+## 遥操作与 DAgger：从人工输入到可再训练数据
+
+`teleop/` 把三维鼠标、键盘、XR、外骨骼、手持追踪器等输入设备统一成 `TeleoperationDeviceBase`，再由 TeleoperationFactory 和 target parser 转成机器人高层目标。遥操作系统并不只是“把手柄位移加到 TCP 上”，它还要处理相对/绝对/绝对增量模式、坐标系转换、latency lead、工具命令归一化、任务选择和 episode 写入。
+
+<MermaidBlock
+  title="Teleop 与 DAgger 接管数据流"
+  renderWidth="1040px"
+  chart={`flowchart LR
+    subgraph Teleop[纯遥操作]
+      T1[Teleop Device] --> T2[TeleoperationDeviceBase]
+      T2 --> T3[Target Parser]
+      T3 --> T4[MotionFactory]
+      T4 --> T5[RobotFactory]
+      T5 --> T6[Robot + Sensors]
+      T5 --> T7[EpisodeWriter]
+    end
+
+    subgraph Dagger[推理 + 遥操接管]
+      P1[Policy Inferencer] --> P2[InferenceBase]
+      P2 --> P3[DaggerController]
+      D1[TeleopInputAdapter] --> P3
+      P3 --> P4{Takeover?}
+      P4 -->|No| P5[Policy Action]
+      P4 -->|Yes| P6[Teleop Action]
+      P5 --> P7[MotionFactory]
+      P6 --> P7
+      P7 --> P8[DaggerRecorder]
+    end`}/>
+
+DAgger 接管路径是这套 infra 的重要数据闭环：默认由 policy 控制，系统持续检测明显遥操作信号；一旦触发 takeover，就切换到 teleop action，并记录整条 rollout。这里的重点不是“人能抢控制权”，而是接管过程要形成可用于再训练的数据。很多策略在训练集分布内看起来正常，但一到真实场景就会卡在局部错误。DAgger 让人类只在策略偏离时介入，同时保留 policy-only 和 takeover 片段，后续可以针对失败边界增量训练。
+
+## RobotMotion：任务脚本和学习接口的高层 API
+
+`factory/tasks/robot_motion.py` 把 RobotFactory 和 MotionFactory 封装成高层 API，提供运动控制、状态查询、数据采集、键盘交互和可视化能力。外部脚本用 `RobotMotion(config_path)` 初始化后，即可调用状态查询、位姿/关节/夹爪命令、录制控制、回 home 和关闭接口。
+
+这层 API 降低了学习代码和任务脚本的耦合。LeRobot 推理脚本不应该知道底层机器人 SDK 怎么连，也不应该知道夹爪或末端执行器的通信包怎么发；它只需要关心 observation 怎么构造、policy action 怎么解析、action 怎么应用到 `RobotMotion`。同样，高层 pick-and-place 脚本也不应该知道 controller thread 的内部细节，只需要发送目标位姿和工具命令。
+
+RobotMotion 内部还启动数据采集线程，按配置采集图像、深度、关节状态、末端状态、工具状态、触觉、IMU 和动作，并交给 `EpisodeWriter` 写入 LeRobot 兼容结构。键盘监听提供启用硬件、开始/停止录制、回 home、退出等调试入口，使同一套 API 既能被自动脚本调用，也能人工交互。
+
+## 数据采集、schema 与在线推理
+
+数据是机器人学习 infra 的第二个中心。实验室infra采用 LeRobot 兼容格式，每个 task 包含多个 episode，每个 episode 里有 `data.json` 和图像、深度、触觉等资源目录。`data.json` 记录元信息、任务文本和逐时间步数据，每帧包含图像、关节状态、末端状态、工具状态、触觉、IMU 和动作。
+
+这套格式同时服务离线分析、训练转换和在线推理对齐。`dataset/lerobot` 提供 reader、loader、data_process 和 manifest compatibility；LeRobot interface 可以读取数据集的 `meta/info.json` 和 `meta/stats.json`，解析 camera 名称、状态维度、动作维度和帧率。新数据集通过 manifest 记录 schema、writer、timebase、timestamp unit 和 capabilities，并用 SemVer 区分破坏性变化、兼容新增和普通修订。这样 reader 可以在时间戳单位、action 语义、相机顺序或夹爪归一化范围不匹配时 fail fast，而不是默默训练出错误模型。
+
+推理入口集中在 `factory/tasks/inferences_tasks/`。无论是 LeRobot、Pi0、Diffusion Policy 还是其他接口，最终都要把策略输出转换为 RobotMotion 或 MotionFactory 能理解的动作。LeRobot 新接口把链路拆成 `DatasetLayout`、`ObservationBuilder`、`CommandTracker`、`ActionApplier` 和 `LeRobotInterface`：读取数据集元信息、构造实时观测、缓存最近命令、解析策略输出并调用机器人命令接口。对于机器人策略，action 不只是向量，它可能是绝对关节、关节 delta、末端位姿、末端 delta 或夹爪开度。把 action type、observation type、orientation 表示和 dataset layout 放在统一接口里，是降低部署事故的关键。
+
+## 运动学、控制器、仿真和标定
+
+`motion/` 提供运动学模型、IK 实现和后端适配。单机器人模型和双臂模型负责 FK、Jacobian、关节限位和 frame 查询；IK 路径覆盖数值 IK、阻尼最小二乘、LM、带任务权重的 IK，以及面向碰撞或轨迹优化的后端适配。多后端设计符合实验室现实：稳定基础计算用通用模型，复杂任务再切换更强的 IK 或轨迹优化后端。
+
+控制器层不只做 IK。`controller/` 里还有 impedance、cartesian impedance、whole body IK、duo controller 和滤波器。控制器选择和任务类型强相关：自由空间抓取可以用 IK + smoother；接触任务更需要阻抗或笛卡尔阻抗；全身平台需要 WBIK 同时考虑躯干、手臂、手部和姿态约束；双臂任务需要左右目标、关节切片和同步执行。
+
+仿真与标定让实验能闭环验证。motion config 中的 `use_hardware`、`use_simulation`、`simulation` 和 `simulation_config` 决定当前是实机、仿真，还是硬件与仿真并行。仿真不是替代真实机器人，而是提供开发和回归测试环境：控制器改动可以先在仿真里验证，学习策略可以先跑通 observation/action 维度，遥操作设备可以先绑定到仿真 target。`calibration/` 提供统一手眼标定框架，支持 eye-in-hand 和 eye-to-hand、多相机选择、ChArUco / ArUco、自动采样和手动采样，并输出重投影误差、条件数、残差等质量指标。
+
+## 配置治理与扩展方式
+
+这套 infra 最值得保留的工程习惯，是把机器人系统变化固化在配置层级中。顶层入口配置负责任务；`motion_config` 负责装配；子配置负责硬件、控制器、模型、平滑器、视觉和仿真。`dynamic_load_yaml` 支持 `!include`，所以一个入口配置可以引用多个子配置，不需要复制粘贴大段 YAML。
+
+配置治理的收益很直接：实验可复现，硬件切换成本低，扩展流程清晰。新增机器人实现 `ArmBase`，新增夹爪或工具实现 `ToolBase`，新增传感器实现对应 base class 并返回 `time_stamp`，新增控制器实现 `ControllerBase.compute_controller()`，新增遥操作设备实现 `TeleoperationDeviceBase`，新增学习策略优先接到 `RobotMotion` 或 `InferenceBase`。
+
+配置驱动也有风险。URDF、控制器配置和机器人实际 DOF 不一致时，错误可能直到运行时才暴露；相机名和数据集 camera 名称不一致时，策略观测会错位；smoother 参数过激时，机器人可能出现不合适的响应。因此平台需要持续加强启动阶段校验：model DOF、controller DOF、action_dim、joint_names、camera_names、gripper range、control_frequency，以及 simulation/hardware 组合关系。配置驱动只有配合严格校验，才能真正减少错误。
+
+## 复盘：价值、代价和当前状态
+
+实验室infra的价值在于，它把机器人系统中最容易散落的东西收到了一个平台里：硬件抽象、控制闭环、运动学模型、平滑器、遥操作、学习推理、数据采集、仿真、视觉和标定。对实验室而言，这意味着新项目不必重复搭基础链路，而可以在同一套接口上快速验证：同一个任务可以用遥操作采数据，用 LeRobot 训练，用 online inference 跑策略，用 DAgger 接管补数据，再回到数据集继续训练。
+
+另一个价值是它尊重真实机器人系统的频率差异。高层策略低频、底层控制高频、传感器异步、相机固定帧率、硬件 SDK 有延迟，这些都不是一个 while loop 能解决的。平台里已经有控制线程、数据采集线程、异步 smoother、状态缓存、latency compensator 和 performance profiler，说明它不是只为离线算法写的，而是在实机调试中逐步沉淀出来的。
+
+但它也有明显代价。为了快速满足实验室搭建初期的基建需求，并支撑同学和老师的日常科研，系统在一段时间内优先追求“能接入、能运行、能采集、能推理”。这牺牲了一部分代码整洁性、架构一致性和长期可维护性：注册表分散在 factory 内部，配置校验不够系统，部分模块职责边界不够清晰，测试覆盖也不足以支撑无限扩展。随着需求增长，继续叠加新功能会放大维护成本，并进一步限制后续架构调整。
+
+因此，这套 infra 当前更适合被视为一个阶段性基建成果：它解决了实验室早期从硬件接入到数据闭环的关键问题，也沉淀了大量真实机器人实验经验；但从长期维护角度看，它已经进入停止新增功能的状态。后续更合理的方向不是继续往上堆功能，而是保留必要维护、提取稳定接口、整理经验教训，并为下一代更清晰、更可验证的机器人基础设施提供设计依据。
