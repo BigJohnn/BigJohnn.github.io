@@ -1,0 +1,197 @@
+---
+title: "ACT / Pi0.5 原始模型格式转换与 Jetson AGX Thor 推理部署"
+subtitle: "从训练 checkpoint 到可验证的机器人热路径"
+date: 2026-06-09
+author: "Peihong"
+description: "系统梳理 ACT 与 Pi0.5 原始模型的格式转换、权重检查、归一化资产、Docker 环境、CUDA Graph 热路径和实机上线前 smoke gate。"
+tags:
+  - VLA
+  - ACT
+  - Pi0.5
+  - Jetson Thor
+  - Robotics Deployment
+---
+
+import MermaidBlock from "../../components/MermaidBlock.astro";
+
+## 问题边界
+
+把一个训练阶段的机器人策略模型放到 Thor 上推理，真正困难的地方通常不是“能不能 `import torch`”，而是训练产物、推理运行时、机器人接口三者之间的契约是否被固定下来。ACT 和 Pi0.5 都输出一段未来动作，但它们的原始产物形态完全不同：ACT 更常见的是 PyTorch 权重、训练配置、数据集归一化统计和一个轻量 Transformer policy；Pi0.5 则来自 OpenPI / Physical Intelligence 生态，原始模型可能是 JAX / Orbax checkpoint，包含 PaliGemma 视觉语言骨干、Gemma expert action head、tokenizer、assets 和 normalization stats。部署时不能只复制一个权重文件，而要把“模型结构、权重 key、dtype、归一化统计、输入视角、动作维度、动作 horizon、prompt/tokenizer、校验脚本”一起固化成部署 artifact。
+
+这里采用的部署思路是小 batch、低延迟的实时推理：不把模型强行导出成 ONNX，也不把部署完全绑定到一次性的 TensorRT engine，而是在运行时直接加载 safetensors 或 Orbax 权重，完成 FP8 / NVFP4 calibration、autotune 和 CUDA Graph capture；热路径只做 graph replay。这个选择对机器人控制很关键，因为机器人侧的 prompt、相机视角、episode 边界和中断策略会变化，如果每次变化都要重新生成 engine，调试成本会非常高。
+
+## 总体流程
+
+<MermaidBlock
+  title="ACT / Pi0.5 从训练产物到 Thor 热路径"
+  renderWidth="980px"
+  chart={`flowchart LR
+    A[训练产物] --> B{模型家族}
+    B -->|ACT| C[PyTorch checkpoint + config + stats]
+    B -->|Pi0.5| D[OpenPI Orbax / JAX checkpoint + assets]
+    C --> E[部署包整理]
+    D --> F[Orbax 完整性检查]
+    F --> G[OpenPI 转 PyTorch / safetensors]
+    E --> H[统一运行契约]
+    G --> H
+    H --> I[Thor Docker / VLA runtime]
+    I --> J[冷启动: 权重加载 / calibration / autotune / capture]
+    J --> K[热路径: CUDA Graph replay]
+    K --> L[动作 sanity / latency smoke]
+    L --> M[机器人 action dispatch]`}/>
+
+上图里有两个故意分开的阶段：格式转换和运行时部署。格式转换的目标不是“优化”，而是把训练产物变成可加载、可检查、可复现的部署包；运行时部署的目标才是把这个包放进 Thor 上的低延迟推理闭环。把这两个阶段混在一起，会导致最常见的部署事故：模型能加载，但动作维度不对；latency 合格，但 normalization stats 来自另一个机器人；推理 smoke 通过，但相机视角顺序和训练时相反。
+
+## ACT 原始模型的部署打包
+
+ACT 的原始模型一般比较直接：训练代码会保存 policy 权重、模型超参、相机名、状态维度、动作维度、chunk size、以及数据集统计量。Thor 上部署 ACT 时，不一定需要完整的 VLA kernel runtime；如果 ACT 模型规模较小，PyTorch eager、TorchScript、ONNX Runtime 或 TensorRT 都可以是合理路径。真正需要严肃处理的是 artifact contract：
+
+```text
+act_deploy_bundle/
+  policy.safetensors 或 policy.pt
+  config.json
+  norm_stats.json
+  camera_config.json
+  action_spec.json
+  tokenizer_or_task_prompt.json   # 如果上层系统把任务文本编码进策略输入
+  smoke_inputs.npz
+  README.md
+```
+
+`config.json` 至少要记录 `state_dim`、`action_dim`、`chunk_size`、`hidden_dim`、`num_queries`、`camera_names` 和训练时的图像尺寸。`norm_stats.json` 要明确 state/action 的 mean、std 或 quantile 区间，不能只把训练脚本里的 pickle 文件丢给部署端。`action_spec.json` 要记录每个 action 维度的语义，例如末端 `x/y/z/roll/pitch/yaw/gripper`，以及是否已经做过关节限幅、是否需要从 normalized action 反归一化到机器人控制单位。
+
+如果要把 ACT 权重转成 safetensors，原则上只是从 `state_dict` 提取 tensor 并保存，不应该改变 key 的语义。转换后必须做一次离线一致性验证：同一组 `smoke_inputs.npz` 输入原始 PyTorch checkpoint 和转换后的 deployment loader，比较输出动作的最大误差、均方误差和 cosine similarity。对 ACT 这种动作头相对直接的模型，转换一致性应该非常接近数值精度误差；如果误差明显，优先检查 `eval()`、LayerNorm/BatchNorm 状态、图像归一化、通道顺序、action chunk 维度排列，而不是怀疑 GPU。
+
+## Pi0.5 原始模型转换
+
+Pi0.5 的源模型更复杂。以 `pi05_base.zip` 这类 OpenPI / Orbax checkpoint 为例，压缩包中关键标记包括 `params/manifest.ocdbt`、`params/_METADATA`、`params/_CHECKPOINT_METADATA`、`params/commit_success.txt` 和 `assets/*/norm_stats.json`。第一步不是转换，而是确认 checkpoint 完整：
+
+```bash
+unzip -tq ckpts/pi05_base.zip
+unzip -l ckpts/pi05_base.zip | sed -n '1,220p'
+```
+
+解压后需要让本地工具确认它确实是 Orbax 格式，并检查 `assets` 下有哪些 embodiment 的 norm stats。一次 `pi05_base` 检查中，assets 包含 `arx`、`droid`、`franka`、`trossen`、`ur5e` 等目录。这里要特别小心：能找到 norm stats 不代表它适合你的机器人。部署 smoke 可以用 DROID stats 跑通 `(10, 7)` 动作输出，但实机控制必须换成目标机器人、目标动作接口对应的统计量。
+
+转换本身使用 OpenPI 官方脚本完成。实践中建议临时建立一个 OpenPI / Orbax conversion venv，安装匹配的 JAX、Flax、Orbax、TensorStore 和 OpenPI 依赖，然后运行：
+
+```bash
+PYTHONPATH=/tmp/openpi-convert/src \
+  /tmp/pi05-orbax-convert-venv/bin/python \
+  /tmp/openpi-convert/examples/convert_jax_model_to_pytorch.py \
+    --checkpoint-dir ckpts/pi05_base \
+    --config-name pi05_libero \
+    --output-path ckpts/pi05_base_pytorch \
+    --precision bfloat16
+```
+
+输出目录应包含：
+
+```text
+ckpts/pi05_base_pytorch/
+  model.safetensors
+  config.json
+  norm_stats.json
+  assets/
+```
+
+一次完整转换记录里，原始 `pi05_base.zip` 大约 12G，解压目录约 12G，转换后的 PyTorch / safetensors artifact 约 6.8G。转换后还要检查关键 key 和 shape，例如 PaliGemma vision patch embedding、language model attention projection、Gemma expert AdaRMS modulation dense、`action_in_proj.weight`、`action_out_proj.weight`。一次真实记录中的 `model.safetensors` 有 812 个 key，`action_in_proj.weight` 为 `[1024, 32]`，`action_out_proj.weight` 为 `[32, 1024]`。这些 shape 是上线前的硬 gate：动作头维度不对，后面的 latency 数字没有意义。
+
+## 为什么推荐 torch + safetensors 路径
+
+低延迟 VLA 运行时通常可以同时支持 torch / safetensors 和 JAX / Orbax frontend，并让两条路径共享底层 kernel binary。但在 Thor 部署上，推荐把原始 OpenPI checkpoint 当作 source artifact，转换成 torch / safetensors 后再部署。原因很实际：
+
+1. Thor 上已有 torch-only Docker image 被验证过，包含主 kernel 扩展、低精度量化扩展和 Thor FMHA 相关 shared object。
+2. 热路径性能主要来自 CUDA kernels 与 CUDA Graph replay，冷启动后的 Python frontend 不是主要瓶颈。
+3. 已有 Thor 测量显示，优化后的 torch 与 JAX 运行路径差距很小；而原始 OpenPI JAX 未优化 baseline 明显慢得多。
+4. safetensors 文件更适合作为部署 artifact 传输、校验和审计；Orbax 更适合作为训练/研究生态中的源格式。
+
+这不意味着 JAX 路径没有价值。JAX / Orbax 对 checkpoint parity、研究复现和 OpenPI 兼容性很重要；但对上机器人这件事，少一个运行时栈就是少一个故障面。
+
+## Thor 上的运行时分层
+
+<MermaidBlock
+  title="冷启动与热路径分层"
+  renderWidth="980px"
+  chart={`sequenceDiagram
+    participant Host as Robot Host
+    participant FE as Python Frontend
+    participant Loader as WEIGHT_SPEC Loader
+    participant Kernels as CUDA Kernels
+    participant Exec as Exec Contract
+    participant GPU as Jetson AGX Thor GPU
+    Host->>FE: load_model(checkpoint, config=pi05, hardware=thor)
+    FE->>Loader: read safetensors / assets / norm stats
+    Loader-->>FE: tensors, scales, buffers
+    FE->>Kernels: calibration inputs + autotune trials
+    Kernels-->>FE: FP8/NVFP4 scales + selected graph schedule
+    FE->>GPU: CUDA Graph capture
+    FE->>Exec: adopt graph + bind buffers
+    loop control ticks
+      Host->>Exec: write images / state / prompt buffers
+      Host->>Exec: graph replay or plan execute
+      Exec->>GPU: cudaGraphLaunch
+      GPU-->>Exec: action chunk
+      Exec-->>Host: actions shape (10, 7)
+    end`}/>
+
+声明式权重加载表是这里最值得借鉴的工程结构。它把权重加载拆成 `WeightSource -> TransformPipeline -> WeightSink`：source 负责从 safetensors 或 Orbax 取 tensor；transform 负责 transpose、FP8 quant、FuseNorm、FusedQKV、FusedGateUp 等加载期变换；sink 负责把结果放到目标 frontend 的属性、列表或连续 buffer。Pi0.5 Thor 的 torch spec 会加载 SigLIP、PaliGemma encoder、Gemma expert decoder 以及 Pi0.5 特有的 AdaRMS modulation dense。这样做的好处是，格式差异留在 source/key mapping 层，runtime pipeline 不需要散落大量 if/else。
+
+冷启动阶段包括权重加载、FP8 activation scale calibration、autotune 和 CUDA Graph capture。典型 Pi0.5 路径第一次调用约 3 秒，之后每次调用就是 graph replay；Thor 上 2-view Pi0.5 的稳定 P50 约 44 ms，也就是约 23 Hz。实际部署记录中，`pi05_base_pytorch` 在 Thor Docker 内跑 `examples/quickstart.py`，随机图像固定 prompt smoke 得到 `(10, 7)` action，sanity PASS，reuse prompt OK，P50 约 47.5 ms / 21 Hz。这个数字是 runtime smoke，不代表任务成功率；任务成功率必须用目标任务、真实相机、真实 norm stats 和机器人闭环单独验证。
+
+## Thor Docker 与最小 smoke
+
+Thor 部署的容器要匹配 Jetson AGX Thor 的 CUDA / PyTorch / aarch64 环境。一次部署记录使用 `thor-vla-runtime:latest`，基础镜像为 NVIDIA PyTorch 25.09 系列，并在中国网络环境下把 NGC 和 CUTLASS 源换成更可达的 mirror。运行时镜像里验证过的信息包括：运行时包版本、`torch 2.9.0a0+...nv25.09`、CUDA 可用、GPU 为 NVIDIA Thor、compute capability `(11, 0)`，并存在主 kernel 扩展、低精度量化扩展和 `libfmha_fp16_strided.so`。
+
+最小 real-GPU smoke 应该在任何机器人 action dispatch 之前执行：
+
+```bash
+docker run --rm --gpus all --runtime=nvidia --ipc=host \
+  --ulimit memlock=-1 --ulimit stack=67108864 \
+  -v /home/nvidia/checkpoints/pi05_base_pytorch:/ckpt:ro \
+  -v /home/nvidia/.cache/vla_runtime:/root/.cache/vla_runtime:ro \
+  thor-vla-runtime:latest \
+  python3 examples/quickstart.py \
+    --checkpoint /ckpt \
+    --framework torch \
+    --config pi05 \
+    --hardware thor \
+    --benchmark 5 \
+    --warmup 20 \
+    --autotune 3 \
+    --prompt "pick up the red block and place it in the tray"
+```
+
+这个 smoke 检查的不是“机器人会不会完成任务”，而是更底层的部署条件：checkpoint 能被 safetensors 打开，norm stats 能被找到，tokenizer/cache 路径可用，CUDA kernels 可以执行，graph 能 capture 和 replay，输出 action 没有 NaN，shape 符合 `(10, 7)`，第二次调用能复用 prompt，不发生重新 capture。只有这些都通过，才应该把输出接到机器人控制器。
+
+## 推理闭环与实时主机
+
+实时机器人部署主机可以分成两部分：冷启动 setup 可以仍由 Python frontend 完成，热路径则由 C++ host 通过 C ABI 驱动 replay。原因是 CUDA Graph 的 executable 不能跨进程序列化，capture 和 replay 必须在同一进程；但 capture 完成之后，Python 不需要参与每个控制 tick。C++ host 可以负责相机帧同步、状态读取、动作限幅、episode 边界、中断策略、ROS2 或厂商 SDK 对接。
+
+<MermaidBlock
+  title="机器人侧控制闭环"
+  renderWidth="900px"
+  chart={`flowchart TB
+    A[Camera Drivers] --> B[Frame Sync / Resize / Normalize]
+    C[Robot State] --> D[State Normalize]
+    E[Task Prompt / Goal Buffer] --> F[Prompt Cache]
+    B --> G[Static Input Buffers]
+    D --> G
+    F --> G
+    G --> H[CUDA Graph Replay]
+    H --> I[Action Chunk 10 x 7]
+    I --> J[Denormalize / Clamp / Safety Filter]
+    J --> K[Robot Controller]
+    K --> C
+    L[Keyboard / Voice / Timeout] --> M[Host State Machine]
+    M -->|stop issuing replay| H
+    M -->|overwrite goal buffer| F
+    M -->|record episode| N[episode npz / logs]`}/>
+
+这个结构也解释了为什么“中断”不应该写进模型里。CUDA Graph replay 本身不能在中途抢占，但 Pi0.5 单次 replay 只有几十毫秒，host 可以在 chunk 边界重新决策：继续执行、停止发下一帧、覆盖 subgoal buffer、进入 reset、记录 episode，或者切换到人工接管。同类 rollout host 和 planner/actor handoff host 也应遵循同一个思想：合约层只提供 Buffer、Graph、Plan、stream/event 和 buffer copy；episode 状态机、planner/actor 频率、中断来源和日志策略都属于上层 serving policy。
+
+## 上线前检查清单
+
+部署 ACT / Pi0.5 到 Thor 前，我会把检查分成四类。第一类是 artifact：权重格式、key count、关键 shape、config、norm stats、camera order、action spec、tokenizer/assets 必须固定。第二类是数值一致性：转换前后同输入的 action 要有可解释误差；Pi0.5 的 torch/JAX 或 production reference 应做 cosine 检查；ACT 则至少要有 PyTorch 原始 loader 与部署 loader 的输出差异报告。第三类是 runtime：容器里必须通过 import、GPU 可见性、kernel shared object、calibration cache、graph capture、reuse prompt、P50 latency 的 smoke。第四类才是机器人：动作单位、限幅、gripper 语义、控制频率、相机曝光、时间戳同步、reset hook、急停和日志。
+
+如果只看 latency，Thor 上 Pi0.5 2-view 的 44 到 48 ms 已经足够支撑约 20 Hz 的动作 chunk 推理。但机器人部署的可靠性通常死在更朴素的问题上：训练时是 wrist + base 两路图，部署时左右相机顺序反了；`norm_stats.json` 来自 DROID，实机却是 Franka；动作输出是 normalized delta pose，控制器按 absolute joint command 执行；prompt 首次设置触发 calibration，控制程序误把冷启动延迟当成实时延迟。技术博客写到最后，最重要的结论反而很工程化：先把格式和契约讲清楚，再谈优化；先 smoke，再接机器人；先证明动作张量可信，再让它驱动硬件。

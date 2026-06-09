@@ -1,0 +1,203 @@
+---
+title: Ego + UMI 数据采集系统
+description: 从 0 到 1 搭建面向具身操作的 ego + UMI 数据采集系统，覆盖多路 GMSL2、手持采集设备、毫秒级同步、GUI、LeRobot v3 数据落盘、回放 QC 与 Thor / Jetson 实机部署。
+publishedAt: 2026-06-08
+featured: true
+status: 实机部署完成
+tech:
+  - LeRobot v3
+  - GMSL2
+  - 手持采集设备
+  - 六维力 / 触觉 / IMU
+  - Jetson Thor
+  - Python Gateway
+  - Vite
+  - Systemd
+tags:
+  - 具身智能
+  - Data Collection
+  - Robotics
+  - Deployment
+order: 1
+---
+
+import MermaidBlock from "../../components/MermaidBlock.astro";
+import MediaImage from "../../components/MediaImage.astro";
+
+## 项目定位
+
+这个项目的目标，是把 ego 视角与 UMI 操作数据采集从“临时脚本可运行”推进到“现场人员可稳定使用、新机器可复现部署、采集数据可直接进入训练链路”的工程系统。它不是单个录制脚本，而是一套围绕具身操作任务构建的数据采集工作站：多路 GMSL2 相机负责多视角 RGB 视频，手持采集设备提供触觉指尖、六维力、夹爪宽度、IMU、扳机等信号，GUI 和 gateway 负责采集控制、设备状态、数据集管理、episode replay 与 QC。
+
+这套系统最关键的问题是时间。对于模仿学习、力控和接触丰富的操作任务，图像和本体传感器是否对齐，直接决定数据能不能用于学习。如果相机看到的是“夹爪接触物体前一刻”，而触觉、六维力、夹爪宽度记录的是“接触后一刻”，模型学到的就不是同一个物理瞬间。这类误差会进一步表现为动作迟滞、接触判断错误、力反馈异常，甚至训练不收敛。
+
+因此系统设计遵循三条原则：能硬同步的部分尽量硬同步；不能硬同步的传感器保留原始高频数据；最后在后处理阶段，用可验证的时间戳把不同时间域映射到同一条可信时间轴上。
+
+## 系统结构
+
+项目可以拆成设备层、采集层、服务层和数据层。设备层连接多路相机和手持设备；采集层记录视频、传感器原始流和时间戳；服务层提供 GUI、gateway、配置与状态管理；数据层负责 episode 落盘、回放、QC 和 LeRobot v3 格式生成。
+
+<MermaidBlock
+  title="Ego + UMI 数据采集链路"
+  renderWidth="980px"
+  chart={`flowchart TB
+    subgraph D[设备层]
+      PWM[Jetson PWM 触发源]
+      CAM[多路 GMSL2 相机]
+      HAND[手持采集设备\n触觉 / 六维力 / 夹爪 / IMU]
+    end
+
+    subgraph C[采集层]
+      VIDEO[GStreamer / Argus / MKV]
+      SENSOR[SDK / UDP 高频轮询]
+      TIME[PTS / Host Time / MCU Timestamp]
+    end
+
+    subgraph S[服务层]
+      GUI[Vite GUI]
+      GW[Python Gateway]
+      QC[Replay / QC / Snapshot]
+    end
+
+    subgraph L[数据层]
+      RAW[原始视频 + JSONL 传感器]
+      ALIGN[同步与对齐后处理]
+      DATA[LeRobot v3 Dataset]
+      TRAIN[训练 / 回放 / 样本筛选]
+    end
+
+    PWM --> CAM --> VIDEO --> TIME
+    HAND --> SENSOR --> TIME
+    GUI --> GW --> QC
+    TIME --> RAW --> ALIGN --> DATA --> TRAIN
+    GW --> VIDEO
+    GW --> SENSOR`}
+/>
+
+<MediaImage
+  src="/img/robot_data_factory.png"
+  alt="Robot Data Factory 采集界面"
+  caption="Robot Data Factory 的 Live Record 页面：左侧是 GMSL2 录制控制、硬同步状态和 episode 进度，右侧统一展示 7 路 GMSL2 相机与手持设备传感器流状态。"
+  eager={true}
+/>
+
+这里刻意把“原始数据”和“训练数据”分开。训练数据通常跟相机帧率一致，例如 60 Hz；但触觉、六维力、夹爪宽度、IMU 等传感器不应该在采集时提前压成 60 Hz。更稳妥的做法是：原始传感器数据以 JSONL 保存，每一行保留原生频率、MCU 时间戳和 host wall-clock；训练用数据再按相机帧时间生成 `observation.state`。这样后续如果要做高频力控分析、IMU 积分或接触检测，仍然可以回到原始序列。
+
+## 为什么不能只靠开始录制时间
+
+最直觉的同步方式，是点击录制时记录一个 `t0`，然后认为第 `N` 帧相机时间就是：
+
+```text
+t_camera[N] = t0 + N / fps
+```
+
+传感器也从同一时刻开始记录，之后按最近时间对齐。这个方案看起来简单，但实际误差很大。相机管道不是点击录制后立刻出第一帧，GStreamer、Argus ISP、编码器和 MKV 封装都会引入启动延迟，首帧真正进入视频流可能比录制命令晚 100 到 500 ms。手持采集设备通常通过 UDP 或 SDK 上报数据，Python 侧轮询到数据的时间也不等于传感器真实采样时间，SDK 缓存、网络传输和线程调度会带来 1 到 3 ms 级抖动。
+
+所以“软件开始时间”不能直接当成真实采集时间。可靠方案至少要回答三件事：多路相机之间是否真的同时曝光；视频文件第 0 帧对应主机时间轴上的哪个时刻；手持设备的 MCU 时间戳如何换算到主机时间轴。
+
+## 三个时钟域
+
+系统里实际存在三个时钟域。第一个是 PWM 硬件时钟，来自 Jetson pwmchip，用来产生 60 Hz 方波并触发多路相机曝光。第二个是主机 wall-clock，也就是 Linux 的 `time.time()` 或 `CLOCK_REALTIME`，它是软件层公共参考时间。第三个是手持设备 MCU 时钟，用来给触觉、六维力、IMU 等传感器打时间戳。
+
+PWM 边沿负责触发相机曝光，MCU 时钟负责标记传感器采样，主机时间负责在后处理阶段把两者桥接起来。硬同步解决“相机之间是否同时曝光”，软同步解决“相机和手持设备之间如何对齐”。
+
+<MermaidBlock
+  title="三时钟域同步模型"
+  renderWidth="940px"
+  chart={`flowchart LR
+    subgraph P[PWM 硬件时钟]
+      EDGE[60 Hz 触发边沿]
+      FRAME[相机曝光]
+      EDGE --> FRAME
+    end
+
+    subgraph M[MCU 时钟]
+      S1[触觉 / 六维力 / IMU 采样]
+      MT[MCU Timestamp]
+      S1 --> MT
+    end
+
+    subgraph H[主机时间轴]
+      PTS[视频 PTS]
+      WALL[Host Wall-clock]
+      GRID[60 Hz Frame Grid]
+      OBS[observation.state]
+    end
+
+    FRAME --> PTS --> GRID
+    MT -->|host = slope * mcu + intercept| WALL
+    GRID --> OBS
+    WALL --> OBS`}
+/>
+
+## 相机间硬同步
+
+多路 GMSL2 相机通过 SG16A deserializer 共享同一路 PWM 触发信号，每个 AR0234C 传感器配置为 slave mode。也就是说，相机不再由自己决定何时曝光，而是等待外部触发边沿。同一个 60 Hz PWM 上升沿会同时触发 camera 0、camera 1、camera 2 直到所有在线相机。
+
+关键配置可以概括为：
+
+```yaml
+hardware_sync:
+  enabled: true
+  fps: 60
+  sensor_trig_mode: 1
+  trig_pin: 0x00020007
+```
+
+启动时主要做两件事：配置 Jetson pwmchip 输出 60 Hz 方波；对每路相机写入 `trig_mode=1`，切到外部触发模式。一旦链路生效，多路相机的曝光时刻就由硬件边沿决定，不依赖 Python 线程调度，也不依赖 GStreamer 何时拿到帧。在理想情况下，相机间同步精度可以达到亚微秒级。
+
+硬同步里最容易忽略的是曝光时间。60 fps 下单帧周期是 16.6667 ms，如果曝光加读出超过这个周期，下一个触发边沿来临时传感器还没准备好，就可能出现低帧率、丢帧或视频不稳定。因此系统会将曝光时间上限限制在周期的 85% 左右：
+
+```text
+exposure_us <= 0.85 * 1e6 / fps
+```
+
+60 fps 下约等于 14166 us。这样每个触发周期内都有足够余量响应下一次 PWM。
+
+多路 `nvarguscamerasrc` 同时启动时，容易触发 Argus ISP 或 NVMM buffer 分配竞争，出现空视频、中途 EOS 或某一路没有正常录制。因此工程上采用逐路错峰启动，例如每路相机间隔约 1 秒。这只影响某路相机从第几个 PWM 边沿开始录，不影响后续帧锁定。错峰启动影响起点，但不破坏硬同步。
+
+## 手持设备增强软同步
+
+手持采集设备的传感器不是严格同频的。IMU、六维力、夹爪宽度、扳机可能接近 200 Hz，左右触觉指尖可能约 50 Hz。如果用 20 Hz 或 60 Hz 读取一个“最新缓存快照”，所有传感器都会被压到这个频率，高频信息会直接丢失。
+
+采集端因此以更高频率轮询 SDK，例如 500 Hz，并按照每个传感器自己的 MCU 时间戳去重。每个传感器维护自己的 `last_recorded_ts`，如果当前 `mcu_ts` 与上一次不同，就说明产生了新样本，此时记录 `mcu_ts`、`host_wall_time` 和解码后的传感器数据。这样一个 10 秒 episode 中，200 Hz 传感器约有 2000 个样本，50 Hz 传感器约有 500 个样本，原始高频信息不会被提前压扁。
+
+基础软同步用主机 wall-clock 作为桥。相机第 `N` 帧时间近似为 `t_start + N / fps`，传感器样本时间近似为 Python 轮询收到样本时的 `time.time()`，之后对每个相机帧，在每个传感器序列里查找最近样本。这个方案能解决不同频率传感器对齐问题，但仍受采样间隔和主机侧抖动限制。200 Hz 传感器最近邻误差约 ±2.5 ms，加上 UDP 和轮询抖动后典型约 ±3 到 5 ms；50 Hz 传感器最近邻误差约 ±10 ms，典型约 ±10 到 13 ms。
+
+增强软同步继续做两件事。第一，用视频 PTS 修正相机首帧偏移。录制时 `nvarguscamerasrc do-timestamp=true` 会把帧进入 GStreamer pipeline clock 的时间写入视频流，episode 结束后可用 `ffprobe` 提取参考相机 PTS：
+
+```bash
+ffprobe -v quiet -select_streams v:0 \
+  -show_entries packet=pts_time -of csv=p=0 camera_00.mkv
+```
+
+修正后的相机帧时间为：
+
+```text
+actual_frame_time[N] = t_start + pts[0] + N / fps
+```
+
+由于多路相机已经由同一 PWM 边沿硬同步，只需要参考一路相机，就可以重建整组相机的 60 Hz 时间网格。
+
+第二，用线性回归校准 MCU 时钟。录制时每个传感器样本同时记录 `mcu_timestamp` 和 `host_wall_time`，可以对每个传感器拟合：
+
+```text
+host_time = slope * mcu_timestamp + intercept
+```
+
+拟合完成后，不再直接使用 Python 收包时间，而是用 `calibrated_time = slope * mcu_ts + intercept` 反推样本在主机时间轴上的位置。单次 Python 轮询时间有噪声，但 MCU 时间戳连续递增；用大量样本估计两条时间轴的关系，可以把随机抖动从 1 到 3 ms 降到约 0.5 ms 级别。
+
+## 后处理流程与回退
+
+完整 episode 同步流程是：开始录制时多路相机已处于 PWM slave mode；手持设备以 500 Hz 轮询 SDK 并按单传感器 MCU 时间戳去重；录制结束后视频封装为 MKV，传感器样本写入 JSONL；后处理提取参考相机 PTS，修正首帧偏移；对每个传感器拟合 MCU 到 Host 的线性映射；最后按 60 Hz 相机帧时间，在各传感器序列中最近邻或插值，生成 `observation.state`。
+
+同步系统必须允许失败并显式回退。PTS 提取失败时，回退到基础帧时间网格；样本数少于 10、回归残差标准差大于 50 ms、MCU 时间戳全为 0 时，回退到采集时记录的 host wall-clock；传感器样本缺失时，在训练数据中显式标记无效，而不是默默填一个看起来合理的值。每个 episode 还应输出同步质量报告，包括 PTS 提取状态、MCU 回归残差、有效样本率、丢包率和使用的对齐策略。
+
+最终同步效果分三层：相机间硬同步解决多路曝光一致性，典型可到亚微秒级；基础软同步通过高频轮询、MCU 去重和最近邻匹配，把不同频率传感器对齐到相机帧，典型误差约 ±3 到 13 ms；增强软同步通过 MKV PTS 与 MCU/Host 线性回归，进一步消除首帧偏移和轮询抖动，典型可推进到约 ±0.5 到 1 ms。
+
+## 部署与系统结果
+
+除了同步链路，项目也补齐了现场部署工程。JetPack / Ubuntu 环境下的 apt 依赖、手持设备运行库对旧版 `tinyxml2`、`urdfdom`、Boost soname 的兼容问题、GUI 最小依赖和 LeRobot 训练依赖边界，都被沉淀为部署清单。手持设备通过固定地址向 Thor 主机推送 UDP 数据，网口地址恢复被固化为 systemd 服务：开机拉起 `enP2p1s0`、幂等添加 `192.168.2.45/24`、主动 probe 设备地址并刷新 ARP / 邻居状态。
+
+gateway / Vite 启动脚本也被整理成可复用模板，处理 ssh 退出后后台进程被带掉的问题，使用 `setsid + disown` 让采集服务稳定脱离终端运行。上线前自检覆盖手持设备 Python 绑定构造、gateway snapshot、相机与手持设备数量、recorder 配置选择、前端可访问性和 replay / QC 链路。
+
+最终，这套系统把 ego + UMI 数据采集沉淀成一个可复制的工程交付：新 Thor / Jetson 主机可以按清单完成部署；多相机、手持设备、GUI、gateway、LeRobot v3 数据集管理被放在同一条链路里；采集后可以进入 replay、QC、训练前处理和策略训练；同步方案则保证每一个图像帧、触觉变化、六维力脉冲和夹爪动作，都尽可能被放到同一条可信时间轴上。只有时间轴可信，机器人学习到的因果关系才可信。

@@ -35,7 +35,7 @@ const { Content } = await render(project);
         eager={true}
       />
     )}
-    <article class="prose">
+    <article class:list={["prose", project.id === "ego-umi-data-collection" && "prose--wide"]}>
       <Content />
     </article>
     <div class="tag-list">

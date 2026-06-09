@@ -9,7 +9,7 @@ export interface FeaturedItem {
   tech: string[];
 }
 
-const curatedProjectIds = ["ego-umi-data-collection", "minsop", "qingtongxia"];
+const curatedProjectIds = ["ego-umi-data-collection", "minsop", "act-pi05-thor-deployment"];
 const curatedBlogMeta: Record<string, Omit<FeaturedItem, "href" | "title">> = {
   "2024-11-20-lerobot": {
     description: "相对社区主线，Lerobot 的贡献主要落在 FR3 实机闭环、Hikrobot 相机、触觉、回放和 MuJoCo 仿真。",
@@ -23,6 +23,17 @@ const curatedBlogMeta: Record<string, Omit<FeaturedItem, "href" | "title">> = {
   }
 };
 
+export async function getFeaturedProjectRelatedPostIds(limit = 3) {
+  const projects = await getCollection("projects");
+
+  return new Set(
+    curatedProjectIds
+      .slice(0, limit)
+      .map((id) => projects.find((entry) => entry.id === id)?.data.relatedPostSlug)
+      .filter((slug): slug is string => Boolean(slug))
+  );
+}
+
 export async function getFeaturedItems() {
   const projects = await getCollection("projects");
   const blogEntries = await getCollection("blog");
@@ -30,13 +41,19 @@ export async function getFeaturedItems() {
   const projectItems: FeaturedItem[] = curatedProjectIds
     .map((id) => projects.find((entry) => entry.id === id))
     .filter((entry): entry is NonNullable<typeof entry> => Boolean(entry))
-    .map((project) => ({
-      href: `/projects/${project.id}/`,
-      title: project.data.title,
-      description: project.data.description,
-      status: project.data.status,
-      tech: project.data.tech
-    }));
+    .map((project) => {
+      const relatedPost = project.data.relatedPostSlug
+        ? blogEntries.find((entry) => entry.id === project.data.relatedPostSlug)
+        : undefined;
+
+      return {
+        href: relatedPost ? toLegacyPath(relatedPost.id, relatedPost.data.date) : `/projects/${project.id}/`,
+        title: project.data.title,
+        description: project.data.description,
+        status: project.data.status,
+        tech: project.data.tech
+      };
+    });
 
   const blogItems: FeaturedItem[] = Object.entries(curatedBlogMeta)
     .map(([id, meta]) => {

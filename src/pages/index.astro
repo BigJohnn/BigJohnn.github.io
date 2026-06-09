@@ -6,13 +6,15 @@ import ProjectCard from "../components/ProjectCard.astro";
 import { site } from "../data/site";
 import { formatZhDate, toLegacyPath } from "../utils/legacy";
 import { toTagSlug } from "../utils/tags";
-import { getFeaturedItems } from "../utils/featured";
+import { getFeaturedItems, getFeaturedProjectRelatedPostIds } from "../utils/featured";
 
 const blogEntries = (await getCollection("blog"))
   .filter((entry) => !entry.data.draft)
   .sort((a, b) => b.data.date.getTime() - a.data.date.getTime());
 
 const featuredItems = (await getFeaturedItems()).slice(0, 3);
+const featuredProjectRelatedPostIds = await getFeaturedProjectRelatedPostIds(featuredItems.length);
+const latestEntries = blogEntries.filter((entry) => !featuredProjectRelatedPostIds.has(entry.id));
 
 const tagSet = new Set<string>();
 for (const entry of blogEntries) {
@@ -57,7 +59,7 @@ const tags = [...tagSet].sort((a, b) => a.localeCompare(b, "zh-CN")).slice(0, 18
         <a href="/blog/">进入文章列表</a>
       </div>
       <div class="grid grid--two">
-        {blogEntries.slice(0, 6).map((entry) => (
+        {latestEntries.slice(0, 6).map((entry) => (
           <PostCard
             href={toLegacyPath(entry.id, entry.data.date)}
             title={entry.data.title}

@@ -192,6 +192,10 @@ video {
   grid-template-columns: minmax(0, 1fr);
 }
 
+.content-shell .prose {
+  max-width: none;
+}
+
 .toc {
   padding: 1rem 1.1rem;
 }
@@ -232,7 +236,8 @@ video {
 
 @media (min-width: 980px) {
   .content-shell {
-    grid-template-columns: minmax(0, 44rem) minmax(16rem, 20rem);
+    width: min(calc(100% - 2rem), 82rem);
+    grid-template-columns: minmax(0, 58rem) minmax(16rem, 18rem);
     align-items: start;
   }
 

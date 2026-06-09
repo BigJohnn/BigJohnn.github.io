@@ -4,6 +4,10 @@
   line-height: 1.85;
 }
 
+.prose--wide {
+  max-width: 63rem;
+}
+
 .prose h1,
 .prose h2,
 .prose h3,
