@@ -1,0 +1,31 @@
+---
+import PageLayout from "../layouts/PageLayout.astro";
+import MediaImage from "../components/MediaImage.astro";
+---
+
+<PageLayout
+  title="微信公众号：船嘴鹭说"
+  description="扫码关注微信公众号：船嘴鹭说。"
+  canonicalPath="/wechat/"
+  image="/img/wechat-chuanzuilushuo.jpg"
+>
+  <section class="section wechat-page">
+    <div class="section__title">
+      <h2>微信公众号：船嘴鹭说</h2>
+    </div>
+    <div class="wechat-page__qr">
+      <MediaImage
+        src="/img/wechat-chuanzuilushuo.jpg"
+        alt="微信公众号船嘴鹭说二维码"
+        caption="扫码关注微信公众号：船嘴鹭说"
+        eager={true}
+      />
+    </div>
+  </section>
+</PageLayout>
+
+<style>
+  .wechat-page__qr {
+    max-width: 28rem;
+  }
+</style>

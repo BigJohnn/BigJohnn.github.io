@@ -10,6 +10,7 @@ export const site = {
   email: "kjustdoitno1@gmail.com",
   social: {
     github: "https://github.com/BigJohnn",
+    wechat: "/wechat/",
     zhihu: "https://www.zhihu.com/people/BigJohhn"
   }
 };
