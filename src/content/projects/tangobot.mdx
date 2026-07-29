@@ -1,0 +1,139 @@
+---
+title: TangoBot 七巧板机器人
+description: 面向七巧板拼图任务的感知与抓取闭环：YOLO + SAM2 出实例掩膜、FoundationPose 做模型级 6D 位姿、抓取坐标系消歧，最后在 Franka FR3 上按模板序列完成抓取与摆放。
+publishedAt: 2025-03-27
+updatedAt: 2025-04-21
+featured: false
+status: 现场 Demo 验证
+tech:
+  - FoundationPose
+  - YOLO + SAM2
+  - Franka FR3
+  - ZeroMQ / Protobuf
+  - Docker Compose
+  - mink / MuJoCo IK
+  - SwiftUI
+tags:
+  - Robotics
+  - 6D Pose
+  - Grasping
+  - Perception
+repo: https://github.com/BigJohnn/TangoBot
+order: 5
+---
+
+import MermaidBlock from "../../components/MermaidBlock.astro";
+
+## 项目定位
+
+TangoBot 要解决的任务很具体：在 iPad 上点一个图案，机械臂把桌面上散落的七巧板逐块抓起来，拼成这个图案。
+
+任务本身是个 demo，但它把一条完整的链路逼了出来——**类别名 → 实例掩膜 → 6D 位姿 → 可执行的抓取位姿 → 机械臂运动**。这条链路里真正花时间的不是跑通某个模型，而是让位姿估计的输出变成夹爪真的能用的东西。
+
+感知侧基于 NVlabs 的 FoundationPose 做二次开发，加上自训的 YOLO 检测、SAM2 分割、双容器部署、手眼标定和一套抓取位姿规范化逻辑。
+
+## 系统拓扑
+
+系统跨三个终端：iOS 前端负责选图案，机器人主机负责采集与执行，视觉主机负责推理。所有跨进程通信都走 ZeroMQ + Protobuf，没有引入 ROS。
+
+<MermaidBlock
+  title="TangoBot 系统拓扑"
+  fontSize="14px"
+  chart={`flowchart LR
+    subgraph IOS["iOS 端"]
+      UI["SwiftUI 图案选择"]
+    end
+
+    subgraph PC2["PC2 · 机器人主机"]
+      ORCH["pipeline 编排\\nREP :12346"]
+      CAM["RealSense 采集"]
+      ARM["FR3 控制 + IK"]
+    end
+
+    subgraph PC1["PC1 · 视觉主机"]
+      SEG["detect_seg 容器\\nYOLO + SAM2"]
+      FP["foundationpose 容器\\n6D 位姿注册"]
+    end
+
+    UI -- "Pattern" --> ORCH
+    ORCH --> CAM
+    CAM -- "DetectionRequest\\nRGB + Depth + class" --> SEG
+    SEG -- "mask + RGBD (:5555)" --> FP
+    FP -- "DetectionResponse\\nPUSH :5559" --> ORCH
+    ORCH --> ARM`}
+/>
+
+三段链路各用了不同的 ZMQ 模式，因为它们的同步语义不一样：
+
+- iOS 到编排层、编排层到分割服务用 `REQ/REP`，需要确认对方收到并开始处理。
+- 分割到位姿估计用 `REQ/REP`，两个容器在同一台机器的桥接网络里。
+- 位姿结果回传用 `PUSH/PULL` 单向推送，因为机器人侧此时可能正在运动，不应该被一个同步等待卡住。
+
+## 感知链路
+
+一次检测请求走完整个三跳，输入只有一个类别名：
+
+1. 机器人主机连拍 50 帧让 RealSense 曝光稳定，取最后一帧，彩色图 JPEG、深度图 PNG 编码进 `DetectionRequest`。
+2. `detect_seg` 容器用自训 YOLO 模型出候选框，丢掉图像上三分之一区域的框（那是桌面之外的背景），取框中心作为 SAM2 的 point prompt，拿到实例掩膜。
+3. 掩膜连同 RGBD 和类别打包发给 `foundationpose` 容器，用对应零件的 CAD mesh 做 model-based 注册，5 次 refine 迭代。
+
+用类别名而不是坐标来驱动，好处是执行序列可以完全写在配置里：模板只说"下一块是平行四边形"，不关心它此刻在桌面的哪个位置。
+
+## 抓取位姿的规范化
+
+这是整个项目最不好看、但最关键的一段。位姿估计"准"和抓取"可用"之间隔着一整套坐标系约定：
+
+- FoundationPose 输出的是 mesh 自身坐标系下的位姿，先用 `oriented_bounds` 的逆变换换算到几何中心。
+- 再做 x/z 轴交换加绕 X 轴 180°，把 mesh 的朝向对齐到夹爪的接近方向。
+- 正方形和平行四边形有对称性，位姿在旋转 180° 后同样成立，但其中一个解会让夹爪从不可达的一侧接近。用 Y 轴投影的符号判断，需要时绕 Z 轴翻 180°。
+- 小三角形单独补一个绕 X 轴 −135° 的旋转和 24.7 mm 的平移，把抓取点从斜边中点挪到质心。
+- 最后再用 Z 轴投影方向做一次翻转判定，保证接近方向朝下。
+
+对称件的翻转消歧尤其容易被忽略：模型给出的位姿在数学上没错，夹爪却会尝试从桌面下方接近。真机上表现为"位姿看起来完全正确但 IK 无解"，只看可视化很难定位。
+
+## 执行链路
+
+机器人主机上的编排进程绑定 `REP:12346` 等 iOS 端的图案选择，每个图案对应一份 JSON 模板。模板是一个步骤序列，每步给出零件类别、目标摆放位姿的 4×4 矩阵、夹爪宽度、接近偏移、抬起偏移、预摆放偏移，以及是否需要经过中间过渡点。
+
+单步执行拆成显式的几段运动，而不是一次点到点：
+
+<MermaidBlock
+  title="单件抓取与摆放流程"
+  fontSize="14px"
+  chart={`flowchart TD
+    DET["检测第 N 件"] --> GRASP["接近 + 抓取"]
+    GRASP --> CHECK{"is_grasped\\n且 width > 4cm ?"}
+    CHECK -- "否" --> RETRY["回拍照位\\n重新检测"]
+    RETRY --> GRASP
+    CHECK -- "是" --> LIFT["抬起 / 过渡点"]
+    LIFT --> PRE["移动到预摆放位"]
+    PRE --> BG["后台发起\\n第 N+1 件检测"]
+    PRE --> PLACE["下落 / 松开 / 撤回"]
+    BG -.-> READY["第 N+1 件位姿就绪"]
+    PLACE --> READY`}
+/>
+
+几个具体做法：
+
+- **IK** 用 mink 在 MuJoCo 的 `fr3_with_hand` 模型上求解，`FrameTask` 的位置代价 1.0、姿态代价 0.5，叠加关节限位约束，收敛阈值取 3 mm / 1e-3 rad。位置阈值放宽到毫米级是因为七巧板是平面件，垂直方向的余量比重复精度重要。
+- **抓取判据**用夹爪状态的 `is_grasped` 和开口宽度大于 4 cm 双重确认。只看 `is_grasped` 会把夹空判成成功——夹爪完全闭合时同样会报抓住。
+- **重试**分两层：位姿检测最多 3 次，抓取最多 3 次，抓取失败时回到拍照位重新检测而不是重试同一个位姿，因为失败往往意味着零件已经被碰动了。
+
+## 检测与运动的流水线重叠
+
+最直接的一个优化：检测跑在后台线程里，在当前零件到达预摆放位之后、松开之前就发起下一件的检测请求。
+
+SAM2 加 FoundationPose 的推理时间因此被机械臂的摆放和回程运动掩盖掉。等机械臂回到拍照位时，下一件的位姿通常已经在队列里了。代价是编排逻辑要显式管理"检测已发起但结果还没取"这个中间状态，重试路径也要相应处理。
+
+## 标定与部署
+
+- **手眼标定**用 AprilTag，采集若干组机械臂位姿与标定板位姿，解出的相机到基座外参存成 YAML；内参和畸变系数从 RealSense 导出成 JSON 单独管理。
+- **CAD 模型**按实际测量尺寸用脚本生成，四类零件各一个 ply，同时作为 FoundationPose 的注册模型和抓取宽度的依据。
+- **双容器部署**用 docker compose：分割服务需要 ultralytics 的环境，位姿估计需要 CUDA、nvdiffrast 和 kaolin 的环境，两套依赖直接冲突。用容器边界隔开，比硬塞进一个 environment 省事得多，代价是多了一跳容器间通信。
+
+## 工程收获
+
+- 位姿估计的精度指标和抓取成功率之间不是同一件事。真正决定 demo 能不能连续跑的是坐标系约定、对称性消歧和失败重试，而不是 refine 迭代次数。
+- 用类别名而非坐标驱动执行序列，让"换一个拼图图案"变成换一个 JSON 文件，不需要动代码。
+- 感知和运动的时间重叠是这类流水线最便宜的加速手段，前提是编排层愿意管理异步状态。
+- 依赖冲突用容器边界解决，比在一个环境里做版本妥协更可控。

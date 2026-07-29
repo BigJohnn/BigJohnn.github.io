@@ -9,6 +9,13 @@ export interface FeaturedItem {
   tech: string[];
 }
 
+export interface ProjectListItem extends FeaturedItem {
+  updatedAt: Date;
+}
+
+type ProjectEntry = Awaited<ReturnType<typeof getCollection<"projects">>>[number];
+type BlogEntry = Awaited<ReturnType<typeof getCollection<"blog">>>[number];
+
 const curatedProjectIds = ["ego-umi-data-collection", "minsop", "act-pi05-thor-deployment"];
 const curatedBlogMeta: Record<string, Omit<FeaturedItem, "href" | "title">> = {
   "2024-11-20-lerobot": {
@@ -23,6 +30,30 @@ const curatedBlogMeta: Record<string, Omit<FeaturedItem, "href" | "title">> = {
   }
 };
 
+const toProjectItem = (project: ProjectEntry, blogEntries: BlogEntry[]): ProjectListItem => {
+  const relatedPost = project.data.relatedPostSlug
+    ? blogEntries.find((entry) => entry.id === project.data.relatedPostSlug)
+    : undefined;
+
+  return {
+    href: relatedPost ? toLegacyPath(relatedPost.id, relatedPost.data.date) : `/projects/${project.id}/`,
+    title: project.data.title,
+    description: project.data.description,
+    status: project.data.status,
+    tech: project.data.tech,
+    updatedAt: project.data.updatedAt ?? project.data.publishedAt
+  };
+};
+
+const toBlogItem = (entry: BlogEntry, meta: Omit<FeaturedItem, "href" | "title">): ProjectListItem => ({
+  href: toLegacyPath(entry.id, entry.data.date),
+  title: entry.data.title,
+  description: meta.description,
+  status: meta.status,
+  tech: meta.tech,
+  updatedAt: entry.data.date
+});
+
 export async function getFeaturedProjectRelatedPostIds(limit = 3) {
   const projects = await getCollection("projects");
 
@@ -34,40 +65,38 @@ export async function getFeaturedProjectRelatedPostIds(limit = 3) {
   );
 }
 
-export async function getFeaturedItems() {
+export async function getFeaturedItems(): Promise<FeaturedItem[]> {
   const projects = await getCollection("projects");
   const blogEntries = await getCollection("blog");
 
-  const projectItems: FeaturedItem[] = curatedProjectIds
+  const projectItems = curatedProjectIds
     .map((id) => projects.find((entry) => entry.id === id))
-    .filter((entry): entry is NonNullable<typeof entry> => Boolean(entry))
-    .map((project) => {
-      const relatedPost = project.data.relatedPostSlug
-        ? blogEntries.find((entry) => entry.id === project.data.relatedPostSlug)
-        : undefined;
+    .filter((entry): entry is ProjectEntry => Boolean(entry))
+    .map((project) => toProjectItem(project, blogEntries));
 
-      return {
-        href: relatedPost ? toLegacyPath(relatedPost.id, relatedPost.data.date) : `/projects/${project.id}/`,
-        title: project.data.title,
-        description: project.data.description,
-        status: project.data.status,
-        tech: project.data.tech
-      };
-    });
-
-  const blogItems: FeaturedItem[] = Object.entries(curatedBlogMeta)
+  const blogItems = Object.entries(curatedBlogMeta)
     .map(([id, meta]) => {
       const entry = blogEntries.find((item) => item.id === id);
-      if (!entry) return undefined;
-      return {
-        href: toLegacyPath(entry.id, entry.data.date),
-        title: entry.data.title,
-        description: meta.description,
-        status: meta.status,
-        tech: meta.tech
-      };
+      return entry ? toBlogItem(entry, meta) : undefined;
     })
-    .filter((entry): entry is FeaturedItem => Boolean(entry));
+    .filter((entry): entry is ProjectListItem => Boolean(entry));
 
   return [...projectItems, ...blogItems];
+}
+
+/** All project work, newest last-updated first. */
+export async function getAllProjectItems(): Promise<ProjectListItem[]> {
+  const projects = await getCollection("projects");
+  const blogEntries = await getCollection("blog");
+
+  const projectItems = projects.map((project) => toProjectItem(project, blogEntries));
+
+  const blogItems = Object.entries(curatedBlogMeta)
+    .map(([id, meta]) => {
+      const entry = blogEntries.find((item) => item.id === id);
+      return entry ? toBlogItem(entry, meta) : undefined;
+    })
+    .filter((entry): entry is ProjectListItem => Boolean(entry));
+
+  return [...projectItems, ...blogItems].sort((a, b) => b.updatedAt.getTime() - a.updatedAt.getTime());
 }

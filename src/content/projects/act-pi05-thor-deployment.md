@@ -1,6 +1,6 @@
 ---
 title: ACT / Pi0.5 Thor 推理部署
-description: 面向机器人策略模型的部署工程实践，覆盖 ACT 打包、Pi0.5 OpenPI/Orbax 到 safetensors 转换、Thor 推理 smoke 与 CUDA Graph 热路径设计。
+description: 面向机器人策略模型的部署工程实践，覆盖 ACT 打包、Pi0.5 OpenPI/Orbax 到 safetensors 转换、Thor 推理 smoke。
 publishedAt: 2026-06-09
 featured: true
 status: 技术博客

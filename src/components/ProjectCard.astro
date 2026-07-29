@@ -4,14 +4,15 @@ interface Props {
   title: string;
   description: string;
   status: string;
+  dateLabel?: string;
   tech?: string[];
 }
 
-const { href, title, description, status, tech = [] } = Astro.props;
+const { href, title, description, status, dateLabel, tech = [] } = Astro.props;
 ---
 
 <article class="card panel">
-  <p class="meta">{status}</p>
+  <p class="meta">{dateLabel ? `${status} · 更新于 ${dateLabel}` : status}</p>
   <h3><a href={href}>{title}</a></h3>
   <p>{description}</p>
   {tech.length > 0 && (

@@ -16,7 +16,7 @@ tags:
 cover: /img/huaikan/huaikan_demo.png
 coverAlt: 料堆重建示意图
 repo: https://github.com/BigJohnn/RTSTool
-relatedPostSlug: 2024-10-30-Huaikan
+relatedPostSlug: 2024-10-30-huaikan
 order: 1
 ---
 

@@ -1,24 +1,26 @@
 ---
 import PageLayout from "../../layouts/PageLayout.astro";
 import ProjectCard from "../../components/ProjectCard.astro";
-import { getFeaturedItems } from "../../utils/featured";
+import { getAllProjectItems } from "../../utils/featured";
+import { formatZhDate } from "../../utils/legacy";
 
-const featuredItems = await getFeaturedItems();
+const projectItems = await getAllProjectItems();
 ---
 
-<PageLayout title="项目" description="重点项目与结构化作品页。" canonicalPath="/projects/">
+<PageLayout title="项目" description="项目与结构化作品页，按最后更新时间排列。" canonicalPath="/projects/">
   <section class="section">
     <div class="section__title">
       <h2>Projects</h2>
-      <p class="meta">{featuredItems.length} 个重点项目</p>
+      <p class="meta">{projectItems.length} 个项目 · 按最后更新时间排列</p>
     </div>
     <div class="grid grid--two">
-      {featuredItems.map((project) => (
+      {projectItems.map((project) => (
         <ProjectCard
           href={project.href}
           title={project.title}
           description={project.description}
           status={project.status}
+          dateLabel={formatZhDate(project.updatedAt)}
           tech={project.tech}
         />
       ))}
