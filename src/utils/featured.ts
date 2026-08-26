@@ -16,7 +16,13 @@ export interface ProjectListItem extends FeaturedItem {
 type ProjectEntry = Awaited<ReturnType<typeof getCollection<"projects">>>[number];
 type BlogEntry = Awaited<ReturnType<typeof getCollection<"blog">>>[number];
 
-const curatedProjectIds = ["ego-umi-data-collection", "minsop", "act-pi05-thor-deployment"];
+const curatedProjectIds = [
+  "ego-umi-data-collection",
+  "umi-trajectory-gt",
+  "fr3-workstation-il-closed-loop",
+  "minsop",
+  "act-pi05-thor-deployment"
+];
 const curatedBlogMeta: Record<string, Omit<FeaturedItem, "href" | "title">> = {
   "2024-11-20-lerobot": {
     description: "相对社区主线，Lerobot 的贡献主要落在 FR3 实机闭环、Hikrobot 相机、触觉、回放和 MuJoCo 仿真。",

@@ -13,6 +13,11 @@ export async function getStaticPaths() {
 
 const { project } = Astro.props;
 const { Content } = await render(project);
+const wideProseIds = new Set([
+  "ego-umi-data-collection",
+  "umi-trajectory-gt",
+  "fr3-workstation-il-closed-loop"
+]);
 ---
 
 <PageLayout
@@ -35,7 +40,7 @@ const { Content } = await render(project);
         eager={true}
       />
     )}
-    <article class:list={["prose", project.id === "ego-umi-data-collection" && "prose--wide"]}>
+    <article class:list={["prose", wideProseIds.has(project.id) && "prose--wide"]}>
       <Content />
     </article>
     <div class="tag-list">

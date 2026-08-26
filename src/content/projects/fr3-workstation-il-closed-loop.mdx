@@ -1,0 +1,152 @@
+---
+title: FR3 工作站模仿学习闭环
+description: 把 FR3 + Pika + RealSense 工作站的采集、QC、Training View、训练、离线验证与真机 bounded rollout 收敛成可重复闭环，并定位到两处“不会报错、只会让 rollout 稳定失败”的训练-推理不对称。
+publishedAt: 2026-08-25
+updatedAt: 2026-08-25
+featured: true
+status: 真机 bounded rollout 调试中
+tech:
+  - Franka Research 3
+  - Pika Gripper
+  - RealSense
+  - ACT / pi0.5
+  - LoRA
+  - MuJoCo
+tags:
+  - 具身智能
+  - Imitation Learning
+  - Robotics
+  - Deployment
+order: 3
+---
+
+import MermaidBlock from "../../components/MermaidBlock.astro";
+
+## 项目定位
+
+这条链路是一台真实工作站：FR3 机械臂、Pika 夹爪、两颗 RealSense（腕部 `ee` 与侧视 `side`，60 Hz）。目标是把它从“能录能训”推进到一条可以重复执行的闭环：采集 → 数据集 QC → Training View → ACT / pi0.5 训练 → 离线验证 → 真机 preview → 真机 bounded rollout。
+
+真正花掉时间的不是某个模型，而是**合同**：数据集里被记录的物理量、训练时被重建的动作、推理时被送进网络的观测，必须逐字对应同一件事。这类不一致有一个共同特征——**它们不会报错**。形状检查通过、rollout 正常跑完、安全阈值不触发，机器人只是稳定地伸向错误的位置。本页记的主要就是这类问题怎么被找出来、以及找出来之后判据该怎么钉。
+
+一条贯穿全程的纪律：不把另一台 rig（DAS / Hikrobot）的经验参数迁移到这台机器上。调参只在本 rig 上发生。
+
+<MermaidBlock
+  title="FR3 工作站闭环的合同视图"
+  renderWidth="900px"
+  chart={`flowchart TB
+    REC["Record session\\nFR3 / Pika / RealSense ee+side @ 60 Hz\\naction = absolute EE + gripper.pos\\ntarget_frame_name = pika_task_tcp"]
+    QC["Dataset QC\\ntimestamp_sync / schema / replay readiness\\nqc_pass 或已确认的 qc_warn"]
+    VIEW["Training View\\ndelta_ee_from_prev_cmd\\ncamera crop 烘进视频\\nil_view_manifest.json"]
+    TRAIN["ACT / pi0.5 训练\\ntrain_config.json 记录 dataset / action / cameras"]
+    ROLL["Rollout\\nXML home keyframe start\\nIK target = pika_task_tcp\\n按 manifest 裁同一个 ROI"]
+
+    REC --> QC --> VIEW --> TRAIN --> ROLL`}
+/>
+
+## 先冻结坐标系和起始位姿
+
+在讨论任何精度问题之前，两件事必须先冻结，否则后面所有实验都不可比。
+
+**起始位姿只有一个来源。** 闭环以 `fr3_pika_gripper.xml` 的 `home` keyframe 作为唯一初始 pose 合同（前 7 个 arm qpos 为 `0 -0.785 0 -2.355 0 1.57079 0.785`），录制与 rollout 走同一个 helper，执行后读回 `state.q` 逐关节校验，并在日志里打印 keyframe 名和 q target。SDK 自带的 `move_to_start()` 不是工作站合同。
+
+**IK 目标帧必须从几何合同推出。** 训练动作代表的是手指工作点，不是 gripper mount，所以 IK 目标是 `pika_task_tcp`；URDF、MJCF、录制 config、rollout 参数必须同名同位姿，并由 frame contract test 锁住（`pika_task_tcp` 平移误差 ≤ 1 mm、旋转误差 ≤ 0.1°）。runtime 默认值不参与表达合同——不显式传参时 Pika 会落到 `pika_gripper_ee`，这个默认值在这台机器上是错的。
+
+第一性原理是同一句话：**policy 的动作目标必须对应数据集里被记录、被重建的那个物理点**。如果 IK 用的是 gripper mount 或另一个固定 frame，系统不会报错，只会把整条轨迹平移到错误的工作空间。
+
+## QC gate 与 Training View
+
+数据集进训练前必须过 QC。`qc_pass` 直通；`qc_warn` 必须显式确认并把豁免写进 event log；其他状态一律拒绝并指向 Dataset Processing 页面。前端 Training View 的每一行直接显示 QC 状态、禁用原因和具体 warning，`/api/datasets/export` 透传 `acknowledge_warnings`，让“这条数据能不能进训练”成为界面上读得出来的判断。
+
+Training View 离线派生训练动作合同：默认 `delta_ee_from_prev_cmd`，保留 `absolute_ee` 作为诊断基线；`meta/il_view_manifest.json` 记录 action contract、自检结果、excluded episodes 和 source episode map。跨 session 合并只走 CLI，且每个源 session 都必须先过 QC。
+
+## 第一处不对称：ROI crop 只作用在训练侧
+
+Training View 的 camera crop 一直是**只作用于训练侧**的变换：它把裁剪后的像素烘进 view 的视频，view 的 feature shape 就是裁剪框的尺寸，于是 checkpoint 声明要一张只存在于那个矩形里的图。而 rollout 读的是整幅传感器帧，旧代码直接 `cv2.resize` 到 feature shape，从不裁剪。
+
+| 侧 | 网络实际看到的 |
+| --- | --- |
+| 训练 | `ee` = 源帧 `[58,194,542,286]`、`side` = 源帧 `[108,58,444,382]` 这两个矩形内的像素 |
+| 推理（修复前） | 整幅 `640x480` 被压进 `542x286` / `444x382` |
+
+两侧的映射差是一个**缩放加平移的仿射错位**，不是噪声。以 `ee` 为例，训练是 `v = Y - 194`，推理是 `v = 0.596 Y`，在 ROI 顶部错位达 116 px / 286 行，约 40% 图高。peg-in-hole 的精定位主要靠这颗腕部相机，这一项足以单独解释“轨迹形态对、就是伸不到位”。
+
+它一直没被发现的原因是：两条路径产出的图像**形状完全相同**，都是 policy 声明的 feature shape。没有任何一层会报错。唯一的线索是日志里那行 `method=cv2.resize_no_crop`，以及 manifest 里非空的 `camera_crop_specs`。
+
+顺带澄清一个容易担心的问题：矩形 ROI 不会拉伸图像。pi0.5 侧用的是 `resize_with_pad_torch`，按 `ratio = max(w/W, h/H)` 等比缩放后补黑边，所以 ROI 是 letterbox 而非 squeeze。ROI 的真实收益在**有效像素**：`640x480` 等比进 224 只占 `224x168`，256 个 SigLIP patch 里有 64 个是纯黑；换成接近 1:1 的 ROI 既减少黑边，又把目标线性放大。所以 ROI 值得用——前提是两侧用同一个框。
+
+修复与验证顺序：
+
+1. **确诊。** 对照 `meta/il_view_manifest.json` 里的 `camera_crop_specs` 与 rollout 日志的 `policy_image_preprocess`；manifest 有框而日志里 `raw_shape_hwc` 是整幅传感器帧，即确诊。
+2. **推理侧补裁剪。** 从 view manifest 读框，在 resize 之前取同一个矩形。相机分辨率与录制不一致、或框超出实时帧，都直接 raise——裁剪框是以源像素表达的，换个尺寸它框的就是场景的另一块，绝不允许静默缩放。
+3. **实证闭环。** rollout 采一帧 step0 dump，把 live policy observation 和 dataset frame 并排看。每次换 view 或动过相机布置后，都作为 preflight 跑一次。
+
+这里有一个必须写死的判据：**不要用图像 MAE 当 crop 的门限。** step0 的状态匹配是自证的——`T_B_Ws` 正是从这一帧观测解出来的，所以转换后的 live state 必然贴着 dataset 起始位姿合同，那 0.1 到 0.2 mm 是恒等式而不是证据；被选中的 dataset 帧只是某条 episode 的近起始帧，物体摆放与现场无关，图像 MAE 因此被场景布置和曝光支配（实测 `mae_255` 在 46 到 49）。真正的门限是日志里 `crop_xywh` 必须等于 manifest、`cropped_shape_hwc` 必须等于 `policy_feature_chw`，这两条由测试锁住。并排看图的价值是几何直读：腕部相机的两根手指是刚性固连的，它们在画面里的位置就是裁剪几何。
+
+## 同一族的第二处：曝光和增益
+
+录制 config 把两颗相机钉死在 `exposure_us: 15000`（`ee` gain 70、`side` gain 128），而推理 config 两个都没设。这不是“沿用设备上的值”——`configuration_realsense.py` 写得很清楚：不设 `exposure_us` 不表示保持现状，而是连接时把自动曝光重新打开。于是**每次 rollout 都把相机切回自动曝光**，而整个数据集的立论前提是曝光、增益、运动模糊恒定。附带还把 60 Hz 让了出去：自动曝光在暗处会把曝光拉过 16.7 ms 的帧周期，帧率静默下降，正是钉住 fps 想避免的那种观测滞后。修复是把两组值逐字抄回推理 config。
+
+## 第二处不对称：99.93% 的 loss 花在两个被锁死的轴上
+
+录制侧的 teleop 段设了 `scale_wx: 0.0` / `scale_wy: 0.0`，roll 和 pitch 被关掉，SpaceMouse 只驱动 x/y/z 加 yaw。于是 `delta_ee_from_prev_cmd` 的 `drx` / `dry` 结构性地恒为零，只剩数值抖动。但 view 的 action 统计是这样的：
+
+| | `drx` | `dry` | `dx` / `dy` / `dz` |
+| --- | --- | --- | --- |
+| q99 − q01 | 1.1e-05 | 3.1e-05 | ~4.6e-03 |
+| min..max | ±1.6e-02 | ±1.7e-02 | ~1.3e-02 |
+| 极值 / 分位带 | 1500× | 550× | ~3× |
+
+`NormalizationMode.QUANTILES` 做的是 `2*(x - q01)/(q99 - q01) - 1`，**不 clamp**，所以超出分位带的值被线性外推到无界。拿 24945 帧实际动作代进去：
+
+```text
+QUANTILES  share:  dx=0.0032%  dy=0.0048%  dz=0.0117%  drx=38.63%  dry=61.30%  drz=0.017%  grip=0.032%
+QUANTILES  |max|:  dx=3.5      dy=3.5      dz=3.4      drx=3007.2  dry=1084.3  drz=19.7    grip=1.0
+MIN_MAX    share:  dx=5.71%    dy=10.14%   dz=8.52%    drx=15.80%  dry=0.94%   drz=7.00%   grip=51.90%
+MIN_MAX    |max|:  所有维恒为 1.0（按构造有界）
+```
+
+决定定位的三个平移维一共拿到 **0.02%** 的 loss，两个不携带任务信息的轴拿走 **99.93%**。这同时解释了训练日志里 `grdn` 从第 2k 步起就稳定在 ~100、而 `grad_clip_norm` 是 1.0——每一步都被裁到单位范数，方向由 `drx` / `dry` 的噪声主导。
+
+选 MIN_MAX 而不是 MEAN_STD：MEAN_STD 把每维的 mean-square 拉平到 1.0（平移合计 42.9%），但 `drx` 仍留有 88σ 的尖峰，梯度尖刺不会消失；MIN_MAX 按构造把所有维界定在 [-1, 1]，而且死轴的取值被压成一个近似常数（`drx` 恒在 +0.54 附近），模型几步就拟合掉、此后不再贡献梯度。MIN_MAX 下夹爪占到 51.9% 看着偏高，但它恰好是当前坏得最彻底的那一维，而且是一个真实的双峰信号（mean 0.553 / std 0.489），这个分配是想要的而不是要修的。STATE 侧不动：那边每一维的极值/分位带比值都在 1.0 到 1.9，没有这个病。也不需要重建 training view——min/max 已经在 `meta/stats.json` 里，归一化模式是 policy 侧的选择。
+
+## 真机验证：两条 rollout 各自对应一个被饿死的维度
+
+crop 与曝光都修好之后，用 checkpoint 038000 / 040000 各跑一条 `real_once`。这两条日志把上面的统计论证变成了观测事实。
+
+```text
+038000 (480 步, log_interval=30, 全程 status=pass)
+step=0    safe_ee=(0.3106, -0.0018, 0.3955)  model_gripper_raw=0.89
+step=150  safe_ee=(0.4208, -0.1904, 0.1710)  model_gripper_raw=0.96
+step=300  safe_ee=(0.4216, -0.3039, 0.0492)  model_gripper_raw=0.66
+step=480  safe_ee=(0.4093, -0.2969, 0.0494)  model_gripper_raw=1.00
+
+040000 (270 步)
+step=0    safe_ee=(0.3107, -0.0038, 0.3972)  model_gripper_raw=0.92
+step=120  safe_ee=(0.4076, -0.1244, 0.2470)  model_gripper_raw=1.01
+step=270  safe_ee=(0.3916, -0.2185, 0.0489)  model_gripper_raw=1.14
+```
+
+- **接近段是好的，安全包络不是原因。** 两条都从 home（z=0.396）平滑下降到桌面（z≈0.049），480 步全部 `status=pass`，没有一次 clamp，leash 一次都没触发。
+- **夹爪从头到尾没有闭合过。** `model_gripper_raw` 全程在 0.58 到 1.17 之间抖动，从未接近 0。`gripper_close_below` 与 `gripper_change_delay` 都是 disabled，没有任何 guard 在阻止闭合——policy 输出的是围绕“张开”的噪声，它没有在做闭合这个决策。
+- **输出越界。** 1.06 / 1.14 / 1.17 都超出了夹爪的归一化范围 [0, 1]，是同一个未 clamp 的归一化在输出侧的镜像。
+
+两个症状各自精确对应一个在 loss 里被饿死的维度：平移拿 0.02% → 只学会“大致往下往前”，没学会精确定位；夹爪拿 0.03% → 压根没学。
+
+还有一个被证伪的预期值得记下来免得重犯：修好 crop 之后曾预期“接近 / 伸手会明显改善”，实际没有。原因是 crop 修的是**感知**，而 policy 在平移和夹爪这两个维度上从未获得过学习信号——感知修好了也没有东西去用它。观测侧的合同和训练侧的目标函数是两件独立的事，修好其中一件不会替另一件背书。
+
+## 运行模式与在训期早停判据
+
+rollout 脚本按风险分级，每一级都有自己的 gate：`env` 打印解析出的环境快照（robot IP、camera config、URDF、target frame、gripper 阈值），`smoke` 不 homing 不运动只验证 checkpoint / 相机 / 一次 forward / action decode，`preview` 先移到 XML keyframe start 再跑 20 步不做真实 rollout，`real_debug` 是带 MuJoCo target viewer 的交互式调试，`real_once` 是单次 bounded rollout，作为第一次闭环验收模式。换 view 或动过相机后，step0 抓拍比对是必跑项而不是可选项。
+
+训练侧也有两条早停判据，避免等满四小时才发现方向错了：2k 步时 `grdn` 应从 ~100 掉到 O(1–10)，还停在 ~100 就是这个判断错了，立刻停；MIN_MAX 下动作有界，loss 绝对值应落在 O(1) 量级，而不再是 52 到 600。
+
+## 现状与遗留问题
+
+当前坐标系、起始位姿、QC gate、观测合同都已收敛，rollout 可以稳定跑完 480 步而不触发任何安全兜底。剩下的是训练侧的结构性上限：
+
+- **LoRA target 只覆盖 action expert。** pi0.5 的默认 target 是 `self_attn.q/v_proj` 加 state/action 投影，`modules_to_save` 为空——SigLIP 视觉塔和 Gemma 主干完全冻结。视觉 grounding 不适配本场景时，把 rank 从 16 提到 32 是在瓶颈之外加容量；应先把 target 扩到 VLM 主干，显存不足时优先退 rank 保覆盖。
+- **`batch_size=2` 对 flow matching 太小。** 每个样本随机采一个时间步和一份噪声，单步梯度被采样方差主导，收敛向均值动作（幅度不足、停在分布中心）。仓库没有 gradient accumulation，只能直接调大 batch，不够就先关 `compile_model` 换显存。
+- **`drx` / `dry` 应该从 action 空间里删掉**，让动作维度与 teleop 实际自由度一致（降到 5 维：dx/dy/dz/drz/grip），归一化方式的选择就不必再为死轴买单。
+- 部署侧的 gripper 单位已经从数值猜测前移到 feature name（`gripper.pos` 按 normalized、`*.width_mm` / `*.distance_m` 按显式单位），只有缺名字的旧 checkpoint 继续走 legacy heuristic；单位与 range 还可以进一步写进 training view 或 checkpoint metadata。
+
+方法上的收获比参数更值得留：**凡是能静默通过 shape 检查的不一致，都要在启动时 fail fast，而不是等 rollout 的行为去暗示。** 启动时输出 URDF path、target frame、dataset action contract、camera keys、crop 框与曝光参数，任一缺失或不匹配即拒绝启动。

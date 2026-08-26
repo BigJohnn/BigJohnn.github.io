@@ -1,0 +1,176 @@
+---
+title: 毫米级 UMI 轨迹 GT 与双 FR3 复现
+description: 用多路固定相机把双手 UMI 演示测成可独立验证的毫米级 TCP 轨迹 GT，再让这条轨迹经双 FR3 注册、联合 retarget 与真实控制后仍能以毫米级 fidelity 物理重播；核心是口径纪律与误差分账。
+publishedAt: 2026-08-26
+updatedAt: 2026-08-26
+featured: true
+status: 误差预算收敛中 · 独立 GT 待认证
+tech:
+  - 多相机 Metrology
+  - ArUco / Corner BA
+  - SE(3) Batch Smoother
+  - Dual FR3
+  - Collision-aware Retarget
+  - IMU Factor Graph
+tags:
+  - 具身智能
+  - Metrology
+  - Data Collection
+  - Robotics
+order: 4
+---
+
+import MermaidBlock from "../../components/MermaidBlock.astro";
+
+## 项目定位
+
+这个项目要回答两个连在一起的问题：**第一，能不能把双手 UMI 演示测成可独立验证的毫米级 TCP 轨迹 GT；第二，这条轨迹经双 FR3 的坐标注册、联合 retarget、碰撞约束与真实控制之后，还能不能以毫米级 fidelity 物理重播。**
+
+它是 [Ego + UMI 数据采集系统](/projects/ego-umi-data-collection/) 的下一层：采集系统解决的是“图像和本体传感器是否对齐”，这里解决的是“轨迹标签本身有多准，以及这个准是谁证明的”。
+
+目标口径：TCP 平移误差 p95 ≤ 3 mm、旋转误差 ≤ 0.5°、静止 jitter 在 0.5 到 1 mm 以内、轨迹 catastrophic jump 为 0、tracking coverage 大于 99%，双手相对位姿误差 ≤ 3 mm 且同时报告 common-view native consistency。
+
+**当前状态：TCP 平移 p95 约 5.5 到 7.4 mm、p50 约 2.5 到 3.8 mm（rig 口径 / 纯相机侧），距 3 mm 目标超标 1.8 到 2.5 倍；而真正会进训练集的生产夹爪口径给不出数**——marker→TCP 未标定，且 cube 晃动破坏了刚体假设。
+
+## 系统角色划分
+
+| Tier | 组成 | 职责 |
+| --- | --- | --- |
+| A | 多路桌面固定 RGB global shutter 相机 | Trajectory GT 的主测量网络 |
+| B | 左右腕部各 1 路 + 头部 1 路运动相机 | 第一阶段不承担绝对 GT 约束；后续用于 4D、close-up 与 markerless recovery |
+| C | 双 FR3 replay system | 目标 embodiment；FR3 FK 只用于内部诊断，不承担 3 mm 认证 |
+| GT | 独立 6DoF 激光 / 光学 tracker | 打破共同模型误差，认证 metric scale |
+
+一个必须随时挂在嘴边的口径提醒：**装的是 8 路，实测一律按 7 台读。** `cam_00` 视野被遮挡、检出 0 帧，标定与跟踪都只用其余七台。
+
+<MermaidBlock
+  title="从相机角点到 TCP 轨迹"
+  renderWidth="900px"
+  chart={`flowchart TB
+    CAM["7 台固定相机（装 8 路，cam_00 检出 0 帧）\\n硬同步已验证"]
+    CORNER["marker corners\\nmarker_layout.json 驱动"]
+    SOLVE["全相机角点联合 corner BA\\n解不出的帧置 unsolved + σ=inf"]
+    MARK["T_world_marker(t)"]
+    TCP["marker → TCP\\n杠杆臂 102.3 mm"]
+    TRAJ["T_world_TCP(t)"]
+    SMOOTH["离线 SE(3) batch smoother\\nsidecar v2：逐帧 timestamp / σ / 可见相机数 / 残差"]
+
+    CAM --> CORNER --> SOLVE --> MARK --> TCP --> TRAJ --> SMOOTH`}
+/>
+
+## 最重要的一条纪律：先读口径
+
+这个项目里同时存在 0.2 mm 和 2 mm 两组数字。它们不矛盾，是两类不同的量。
+
+**所有亚毫米数字都产自单次标定内部**——同一套外参既做拟合又做检验，误差在两边同时出现并抵消，因此看不见“外参本身就是错的”。自洽性检查只能给误差的下限。
+
+这条纪律是踩了两次才钉死的：先是把“同一份角点检测重跑 BA 的 0.06 mm”当成重标复现性，后来又把“同一次采集 held-out 的 0.244 mm”当成端到端精度。现在的规定是：**实务上 σ 与预算核账一律按 2 mm 量级；0.244 / 0.26 mm 只用于论证“相机布局够不够用”这一件事。** 每放开一级独立性，数字就涨一个量级，11 个历史数字（0.06 / 0.244 / 0.217 / 0.26 / 0.05 / 0.61 / 1.7–1.9 / 2.10 / 2.22 / 2.54 mm）各自允许了多少独立性，单独列成了一张谱系表。
+
+同源的第二条通则：**逐相机弥散是诊断量，不是标签误差。** 它系统性高估标签对单台相机、单个 marker 的敏感度，凡由它推出的数字都按上界读。
+
+## 误差预算与分账
+
+TCP 平移误差按 p95 ≤ 3 mm 管理，各项按近似独立的 RMS 合成：
+
+```text
+e_total ≈ sqrt(e_camera² + e_marker_geometry² + e_marker_tcp² + (L·θ)² + e_solver² + e_timing² + e_smoothing²)
+```
+
+`L` 是 marker rig 到 TCP 的杠杆臂，当前 102.3 mm（分布式 rig 取代高位 cube 后的实测值，旧 cube 是 241 mm）。0.5° 在当前杠杆臂下贡献约 0.89 mm，而在旧 cube 上是 2.1 mm——**换 rig 本身就是一次误差预算的重构，而不只是换个零件。**
+
+几何不是瓶颈这一条已经被两条独立路径夹住：Level 1 全区 worst-axis p95 0.73 mm、held-out 3D 一致性 p95 0.244 mm，量级一致，所以“不要挪相机、不要加相机”这个结论是稳固的。超出预算的部分**全部在外参，且几乎全是旋转**。
+
+## cam_09：错的是 2° 旋转，不是 30 mm 平移
+
+这是本项目最有代表性的一次归因。表观症状是一台相机存在近似固定的平移偏置，但正确的解是 **1.988° 的旋转错**——旋转错在有限工作区里长得就像固定平移，所以“减一个常向量”是错的，必须重解 R 与 t。修正后端到端复核整机 p50 从 3.66 降到 3.42 mm（已解出，尚未上线生产）。
+
+用同样方法对七台各解一次，只有 cam_09 的信噪比是压倒性的：1.988° 修正对 0.047° 留一散布，**42:1**；cam_06 / 13 / 12 在 2 到 3.4:1，只算提示性；cam_07 / 08 / 14 落在自身噪声内，**不显著就不应采纳**。这条判据挡住了“顺手把七台都微调一遍”的冲动。
+
+有意思的是，后来把估计器换成全相机角点联合 corner BA 之后，BA 的外点门在零先验下**独立复现了这个结论**——98% 的剔除判给了 cam_09。
+
+## 标定协议的杠杆在哪里
+
+一组敏感度实验把“该怎么标”从推测变成了测量：
+
+| 变量 | 值多少误差 |
+| --- | --- |
+| 同一批数据重采样 | 0.61 mm |
+| 拟合帧数 200 → 120 | 0.12 mm |
+| 换一整轮独立挥板 | **2.54 mm**（p95 2.76 / max 2.79，几乎是常量） |
+
+**杠杆是“这一轮扫过哪些板姿态”，不是“多采几帧”。** 覆盖审计进一步查到了这 2.54 mm 的物理来源：某次采集的两轮不是同一件事做了两遍，而是互补的两个半截——第一轮七台全部在外 40% 画幅上零角点，第二轮反过来中心欠约束。所以这个数是“两轮各自都不合格”时的差，**不是复现性**；外参的重采复现性至今仍是空白。
+
+由此定下的验收口径有三条，且都能由覆盖报告直接判：每一轮 episode 自己就要覆盖全画幅（8×5 网格每格 ≥10 帧、径向分箱到 0.8 每箱 ≥200 角点、外环 ≥1500 角点且来自 ≥60 帧）；一次采两轮独立挥板，各自拟内参重解 rig，两者之差才是第一个真实的复现性数字；**判据必须落在“拟合实际用的那 200 帧”上，而不是原始检出**——原始过、选帧后不过，说明要改的是选帧策略（按覆盖贪心补空格，而非按帧序均匀抽），不是再去挥板。
+
+## 一个此前从未进过预算的项：速度
+
+在真实操作速度下（rig 速度 p95 达 680 mm/s）误差随速度上升：逐相机弥散 p95 从 10.6 涨到 18.9 mm，而**融合重投影残差几乎不动**（3.68 → 3.81 px）。这意味着这一项无法用残差监控，只能按速度分层统计——**残差不动不等于标签没变差**，这是把“我有监控”和“我监控得到”分开的一个具体例子。
+
+## 生产链换血：sidecar v2 与不向后兼容的决定
+
+生产链已经整体更换：估计器改为全相机角点联合 corner BA，解不出的帧不再回落成 pose 平均，而是置 unsolved 且 σ=inf；写入数据集的改为离线 SE(3) batch smoother，EMA 降级为分析用 CSV；sidecar 契约独立成模块，qualities 必填，**物理上写不出 v1 文件**；timestamp 从 parquet 读入，缺列直接失败，拒绝用 `frame_index / fps` 顶替。
+
+首跑带回两个发现：换估计器把标签**移动了约 1 cm**（BA 对旧融合的中位差 10.3 / 7.7 mm），事后证明“v2 不与 v1 拼接”是必须的；以及前面提到的 BA 外点门独立复现 cam_09。
+
+关于兼容性的决定值得单独记：**新 schema 不向后兼容，已有数据集不重跑**，故新旧 sidecar 长期共存。reader 见到旧版必须显式报错，把新旧混进同一训练集必须失败而非静默拼接——v1 是 pose 级平均加因果 EMA，v2 是 corner BA 加 batch smoother，不是同一条量测链。但版本闸门只设在“汇聚成训练集”那一层，不设在每个 reader 上：危害只发生在拼接那一刻，单独读一个 v1 episode 是无害的。
+
+## marker layout 与坐标系出处
+
+原来的检测路径写死了“6 个 marker、同尺寸、都在面上、都居中”，而分布式 rig 四条全不成立。现在改由显式的「marker id → 4×3 角点表」驱动，不要求同尺寸也不要求共面。三个设计要点：
+
+- **无损迁移要有证据**——不配 layout 时，角点与旧实现逐点 bit-identical，两种 handedness 都有测试锁死；
+- **ArUco 字典写进 layout 文件本身**，防止“换了 rig 忘了换字典 → id 解码成别的东西、pose 却仍然‘成功’”；
+- **marker→TCP 是另一个文件**，换 rig 要换两个——这个分离正是 BA 与夹爪几何解耦的来源。
+
+但“已完成”指的是管道，不是数据：现役 rig 上从没真的量过一份 layout，填入实测 layout 前，误差预算里 marker 几何那一行不能算收敛。而且“替换文件”等于**跑一次测量，不是照 CAD 手填**——layout 由多相机采集三角化产出，CAD 只做先验，**marker 尺寸是输出不是输入**。
+
+坐标系侧，每条 episode 与每次标定都必须可追溯到一个 `world_frame_id`；全相机移动只触发 continuity break，不使历史轨迹失效。这里有一条明确的禁令：**不允许在部署机上另跑一次 freeze**——那会给同一个物理坐标系造出第二个 ID，正是这套机制要防的事；基准只能从主仓库同步过去。这类风险的共同点是不可逆：今天录的 episode 没写坐标系出处，事后补不回来。
+
+## 双 FR3 复现：为什么它不是“把轨迹发给机器人”
+
+<MermaidBlock
+  title="UMI 演示到双 FR3 物理复现"
+  renderWidth="900px"
+  chart={`flowchart TB
+    DEMO["UMI physical motion"]
+    GT["多相机 GT\\nT_demo,L(t), T_demo,R(t)"]
+    ALIGN["shared alignment / absolute registration\\n左右共用一个 T_align"]
+    RETARGET["bimanual retarget + collision constraints\\nT_ref,L(t), T_ref,R(t)"]
+    CTRL["dual-FR3 control"]
+    RGT["independent 6DoF replay GT\\nT_actual,L(t), T_actual,R(t)"]
+    METRIC["relative / absolute / bimanual / contact replay metrics"]
+
+    DEMO --> GT --> ALIGN --> RETARGET --> CTRL --> RGT --> METRIC`}
+/>
+
+这条链路上每一段都可能引入 bias、随机误差或时延，所以“录制 GT p95 ≤ 3 mm”只能认证 recording 子系统，**不能推出真机 replay 也 ≤ 3 mm**。几个已经写进协议的判断：
+
+**Base registration 是刚体注册，不是软件参数。** 两台 FR3 的运动学只在各自 base frame 中有意义，必须先注册进同一个 canonical metric world。当前拆成 `T_WB = T_WP · T_PB`：多相机测可移动平台上的 ArUco rig 得到 `T_WP`，平台到 base 的刚体外参 `T_PB` 预先标定。平台一被移动，旧的 `T_WB`、inter-arm collision scene 与 absolute replay transform 就全部失效——这不是漂移，是物理坐标系变了。marker 必须装在与 base 共刚体的承力结构上，贴在薄钣金或塑料罩上测到的是 panel motion。
+
+**双手不能各自做独立的 first-frame alignment。** 若左右分别乘不同的 `A_L`、`A_R`，`inv(A_L·T_L) · (A_R·T_R)` 一般不再等于原始 `T_LR`，会把双手间距和相对姿态人为改掉。必须求一个左右共享的 `T_align`，让公共刚体变换只改变整段动作在世界中的落点。
+
+**relative 与 absolute 测的是不同东西。** shared first-frame alignment 会主动消掉一个常量 world-frame 偏置，适合检验轨迹形状与 short-horizon 运动；absolute replay 固定 `T_WB`，检验真实桌面、物体与 TCP 的空间一致性。两者不能互相替代。
+
+**7DoF 冗余意味着逐帧独立 IK 是错的。** `q̇ = J⁺ẋ + (I − J⁺J)z` 的第二项位于 null-space，可用于远离关节限位、奇异位形和另一只手臂；逐帧独立 IK 只约束末端位姿而不约束 null-space 连续性，会出现 elbow branch 跳变，所以必须把整段轨迹当作连续优化问题。
+
+**collision-free 不是充分条件。** 几何模型里的 signed distance 只代表名义模型，真实系统还有 base registration、TCP 标定、连杆几何与控制跟踪误差，因此要求 `d_min > d_safe`，而 `d_safe` 由左右不确定度倒推，不是随手设一个常数。
+
+**retarget 之后不要直接改 action label。** UMI 图像记录的是原始手真实位于 `T_demo` 时的视觉状态；若把 action 换成明显不同的 `T_retarget`，observation 与监督 action 就不再来自同一个物理状态分布。默认仍以 `demo_raw` 作监督，retarget 作为 feasibility / quality metadata；要 embodiment-native 数据，正确路径是 retarget → 真机 replay → 重新采 FR3 侧 observation-action 对。三套轨迹（`demo_raw` / `retarget_reference` / `executed_robot`）永远都要保留，禁止覆盖原 demo。
+
+**FR3 不能自证。** repeatability 与 absolute accuracy 是两个指标；`e_internal = T_cmd⁻¹·T_FK` 只反映控制器与机器人模型的内部一致性，`e_physical = T_cmd⁻¹·T_GT` 才包含真实机械结构、tool/TCP、base 与负载柔顺性。二者的差本身就是系统误差的证据。所以在混入 UMI、retarget 和接触之前，先用已知的 10 / 30 / 50 / 100 mm 平移与几何轨迹单独标定 FR3 自身的 physical tracking 能力。
+
+**数据准入分两级。** `training-valid` 是 tracking ∧ qc ∧ bimanual ∧ dual_fr3_executable，可规模化，不要求每条都真机 replay；`replay-certified` 额外要求通过独立 physical replay benchmark，按 episode 或任务族抽样认证。两者必须分开命名，否则少量 benchmark 的 pass 会被静默外推成“全数据都已物理认证”。
+
+评价顺序也定了：contact-local 与 short-horizon RPE 优先于 global APE，重点报告 40 ms / 100 ms / 400 ms / 1 s 的 relative pose error，同时保留独立 absolute GT 用于认证 metric scale。
+
+## 现状与阻塞
+
+当前有三层阻塞，排序本身就是这个项目的执行主线：
+
+1. **实物几何被供应商阻塞。** 现 rig 是单次自打印装配，现在做拆装 / 载荷 / opening repeatability，测出来的分布不会迁移到新夹爪。
+2. **尺子本身还有一台已知错的相机。** cam_09 的修正已从数据解出，但尚未进生产；上线前还要在另外两批数据上复验，因为旋转错的表观幅度本来就随位置变。
+3. **没有独立 GT。** 3 mm 至今无法被认证，tracker 采购是前置期最长的一项。
+
+主线排序的判据被压缩成一句话：**“新夹爪明天到货，这项工作会不会白做？”** 会白做的就等，不会白做的就现在做。据此，被夹爪几何阻塞的期间主线临时前移到三类与几何解耦的事项：修尺子（外参、更大标定板）、修管线（BA / covariance / timestamp 进生产 sidecar，layout 文件接入生产检测）、抢前置期（tracker 采购、标定板下单、Camera↔IMU 时间标定）。
+
+后续还有两个阶段：把已认证的 TCP 轨迹反推腕部相机 pose，为 4D 重建提供强 camera trajectory；以及研究 dense 3D / 4D perception 能否在 marker 遮挡甚至 markerless 时逼近这条已认证的 GT——注意方向是**用已认证轨迹去约束 4D 重建，而不是由 4DGS 反推出 GT**。
