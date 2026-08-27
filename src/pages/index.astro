@@ -28,11 +28,16 @@ const tags = [...tagSet].sort((a, b) => a.localeCompare(b, "zh-CN")).slice(0, 18
 <BaseLayout title={site.seoTitle} description={site.description} canonicalPath="/">
   <main>
     <section class="shell hero">
-      <span class="hero__eyebrow">Peihong / Projects</span>
-      <h1>机器人、三维视觉与真实工程项目。</h1>
+      <span class="hero__eyebrow">Peihong</span>
+      <h1>Robotics, 3D Vision, and Embodied Systems.</h1>
       <p>
-        这里记录我做过的项目、技术笔记和工程实践，重点围绕机器人系统、三维重建、工业视觉和具身智能原型。
+        我关注机器人系统、三维重建、工业视觉和具身智能原型。这里整理项目、实验记录和工程笔记，偏向可复现的系统设计与真实场景里的取舍。
       </p>
+      <div class="hero__links" aria-label="Profile links">
+        <a href={site.social.github}>GitHub</a>
+        <a href="/projects/">Projects</a>
+        <a href="/blog/">Notes</a>
+      </div>
     </section>
 
     <section class="shell section">

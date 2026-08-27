@@ -27,6 +27,11 @@ const wideProseIds = new Set([
   image={project.data.coverFallback ?? project.data.cover}
 >
   <section class="section">
+    <header class="project-hero">
+      <p class="meta">Project</p>
+      <h1>{project.data.title}</h1>
+      <p>{project.data.description}</p>
+    </header>
     <div class="tag-list">
       <span class="tag">{project.data.status}</span>
       {project.data.tech.map((item: string) => <span class="tag">{item}</span>)}

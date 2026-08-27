@@ -11,7 +11,7 @@ interface Props {
 const { href, title, description, status, dateLabel, tech = [] } = Astro.props;
 ---
 
-<article class="card panel">
+<article class="card">
   <p class="meta">{dateLabel ? `${status} · 更新于 ${dateLabel}` : status}</p>
   <h3><a href={href}>{title}</a></h3>
   <p>{description}</p>

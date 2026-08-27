@@ -13,7 +13,7 @@ interface Props {
 const { href, title, subtitle, description, dateLabel, tags = [] } = Astro.props;
 ---
 
-<article class="card panel">
+<article class="card">
   <p class="meta">{dateLabel}</p>
   <h3><a href={href}>{title}</a></h3>
   {subtitle && <p><strong>{subtitle}</strong></p>}
