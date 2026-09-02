@@ -2,7 +2,7 @@ export const site = {
   title: "项目清单",
   seoTitle: "Peihong | Robotics Projects and Notes",
   description:
-    "机器人、三维视觉、具身智能与工程项目记录。围绕真实项目、系统设计与实验过程展开。",
+    "机器人学习系统、三维视觉、具身智能与真实工程项目记录。重点是把采集、训练、部署、rollout 诊断和场景恢复做成可复现闭环。",
   lang: "zh-CN",
   locale: "zh_CN",
   siteUrl: "https://bigjohnn.github.io",
