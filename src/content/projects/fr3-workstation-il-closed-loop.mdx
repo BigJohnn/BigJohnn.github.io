@@ -2,7 +2,7 @@
 title: FR3 工作站模仿学习闭环
 description: 把 FR3 + Pika + RealSense 工作站的采集、QC、Training View、训练、离线验证、场景恢复、rollout 评分和落点分析收敛成可重复闭环，让机器人学习迭代从“试一次看感觉”变成可诊断的实验系统。
 publishedAt: 2026-08-25
-updatedAt: 2026-09-01
+updatedAt: 2026-09-30
 featured: true
 status: 真机学习闭环与 rollout 诊断系统
 tech:
@@ -82,6 +82,10 @@ import MermaidBlock from "../../components/MermaidBlock.astro";
 Training View 离线派生训练动作合同：默认 `delta_ee_from_prev_cmd`，保留 `absolute_ee` 作为诊断基线；`meta/il_view_manifest.json` 记录 action contract、自检结果、excluded episodes 和 source episode map。跨 session 合并只走 CLI，且每个源 session 都必须先过 QC。
 
 ## 训练与上机诊断能力
+
+近期插孔实验见 [5 mm 直径间隙的插孔实验：从末端误差到可核验的成功率](/2026/09/30/peg-insertion-5mm-experiments/)，重点讨论抓取约束、接触搜索、场景恢复，以及组合系统 47/50 插入结果的适用条件。
+
+Pi0.5 + LoRA 的具体训练配方、消融对照和评估边界见 [Pi0.5 + LoRA 真机训练复盘：从动作契约到可诊断的 FR3 baseline](/2026/09/30/pi05-lora-fr3-training/)。文章整理截至 2026-08-31 的实验：48 条示教完成训练，固定协议真机 20 轮仍为 0 成功，重点是动作契约、LoRA 更新尺度、逐维损失与阶段诊断如何帮助下一轮迭代。
 
 这个项目里沉淀了一组可复用的诊断能力，用来把“模型没学会”拆成更具体的工程问题。
 
