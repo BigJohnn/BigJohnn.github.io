@@ -25,9 +25,9 @@ const curatedProjectIds = [
 ];
 const curatedBlogMeta: Record<string, Omit<FeaturedItem, "href" | "title">> = {
   "2024-11-20-lerobot": {
-    description: "相对社区主线，Lerobot 的贡献主要落在 FR3 实机闭环、Hikrobot 相机、触觉、回放和 MuJoCo 仿真。",
-    status: "开源项目",
-    tech: ["FR3", "Hikrobot", "ACT", "Tactile", "MuJoCo"]
+    description: "基于 LeRobot 的系统集成与扩展，覆盖多模态采集、FR3 实机闭环、标定与回放诊断。",
+    status: "基于开源框架的工程实践",
+    tech: ["LeRobot", "FR3", "Calibration", "Data Quality", "MuJoCo"]
   },
   "2024-11-20-zeroth01": {
     description: "面向低成本人形机器人的开源实践，覆盖硬件搭建、仿真、强化学习与部署验证。",

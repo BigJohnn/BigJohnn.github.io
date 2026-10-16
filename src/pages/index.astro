@@ -31,7 +31,7 @@ const tags = [...tagSet].sort((a, b) => a.localeCompare(b, "zh-CN")).slice(0, 18
       <span class="hero__eyebrow">Peihong</span>
       <h1>Robotics Learning Systems for Real Hardware.</h1>
       <p>
-        我关注机器人系统、三维重建、工业视觉和具身智能原型。近期重点是把真实机器人学习从“录数据、训模型、上机试”推进到可复现、可诊断、可快速迭代的实验闭环。
+        我关注机器人系统、三维视觉与具身智能。近期工作贯穿多模态数据采集、工具标定、轨迹复现和策略评估，把硬件、数据与模型连接成可验证、可诊断的实验闭环。
       </p>
       <div class="hero__links" aria-label="Profile links">
         <a href={site.social.github}>GitHub</a>
@@ -42,24 +42,24 @@ const tags = [...tagSet].sort((a, b) => a.localeCompare(b, "zh-CN")).slice(0, 18
 
     <section class="shell section capability-strip">
       <div class="section__title">
-        <h2>机器人学习效率系统</h2>
-        <a href="/projects/fr3-workstation-il-closed-loop/">查看 FR3 闭环</a>
+        <h2>从数据可信到实机可验证</h2>
+        <a href="/projects/umi-trajectory-gt/">查看近期测量与复现工作</a>
       </div>
       <div class="capability-grid">
         <article>
           <span>01</span>
-          <h3>采集前移</h3>
-          <p>把同步、QC、起始位姿、相机 crop、曝光和动作合同前移到训练前与 rollout 前，减少“跑完才发现数据不可用”的实验浪费。</p>
+          <h3>数据可追溯</h3>
+          <p>保留原始记录、时间对齐依据和标定状态，将采集、回放与质检连起来，让训练数据的来源和处理过程可以核对。</p>
         </article>
         <article>
           <span>02</span>
-          <h3>场景可恢复</h3>
-          <p>Record / Rollout 页面支持基于 demo 几何和桌面投影的 scene reset：操作者刷目标区域，系统把 peg 放回可控分布。</p>
+          <h3>执行可验证</h3>
+          <p>通过工具标定、坐标注册、单臂回放与外部测量，区分轨迹重建和硬件执行误差，逐步完善端到端验收。</p>
         </article>
         <article>
           <span>03</span>
           <h3>失败可定位</h3>
-          <p>每次 rollout 后记录阶段评分、blocker、落点几何和 checkpoint 轨迹，不只看成功率，而是找出下一轮训练最该修的瓶颈。</p>
+          <p>把阶段评分、场景恢复、轨迹记录和训练诊断放入同一工作流，让一次失败留下证据，指导下一轮实验。</p>
         </article>
       </div>
     </section>

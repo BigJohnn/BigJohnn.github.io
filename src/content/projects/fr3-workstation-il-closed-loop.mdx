@@ -1,18 +1,18 @@
 ---
 title: FR3 工作站模仿学习闭环
-description: 把 FR3 + Pika + RealSense 工作站的采集、QC、Training View、训练、离线验证、场景恢复、rollout 评分和落点分析收敛成可重复闭环，让机器人学习迭代从“试一次看感觉”变成可诊断的实验系统。
+description: 将采集、数据质检、训练视图、策略部署和实机评估组织成可诊断的实验工作流，并接入标定、轨迹复现与外部测量工具。
 publishedAt: 2026-08-25
-updatedAt: 2026-09-30
+updatedAt: 2026-10-16
 featured: true
-status: 真机学习闭环与 rollout 诊断系统
+status: 学习闭环与实机诊断持续迭代
 tech:
   - Franka Research 3
-  - Pika Gripper
-  - RealSense
-  - React + Vite GUI
   - ACT / pi0.5
   - LoRA
+  - React
+  - Python
   - MuJoCo
+  - Calibration
 tags:
   - 具身智能
   - Imitation Learning
@@ -22,95 +22,69 @@ order: 3
 ---
 
 import MermaidBlock from "../../components/MermaidBlock.astro";
+import MediaImage from "../../components/MediaImage.astro";
 
-## 项目定位
+我的工作重点是把采集、训练与实机评估连接成一个可以持续迭代的系统。除了让策略在机械臂上运行，还要能回答：训练数据是否可信，部署输入是否一致，一次失败究竟发生在哪个环节。
 
-这条链路是一台真实工作站：FR3 机械臂、Pika 夹爪、两颗 RealSense（腕部 `ee` 与侧视 `side`，60 Hz）。目标是把它从“能录能训”推进到一条可以重复执行的闭环：采集 → 数据集 QC → Training View → ACT / pi0.5 训练 → 离线验证 → 真机 preview → 真机 bounded rollout。
+这套工作站把数据质检、训练视图、checkpoint 检查、场景恢复、阶段评分和实验记录收进 GUI 与配套运行工具。近期又扩展了标定、轨迹复现和外部测量工作流，让学习问题与硬件、坐标和控制问题能够分别排查。
 
-这个项目对外最有价值的部分，不只是“能让一个 policy 在 FR3 上跑起来”，而是把机器人学习里最耗时间的几件事系统化：场景怎么恢复到可比状态，失败怎么在 rollout 刚结束时被结构化记录，落点怎么和 demo 覆盖分布放在同一张 base-frame 图里读，checkpoint 能不能安全上机怎么在启动前 fail fast。它把一次次手工调试，收敛成一套能让团队更快迭代、更容易交接、更容易复盘的实验基础设施。
+本文更新至 2026 年 10 月，保留工程方法和阶段成果，不公开内部训练配方、设备参数或任务成绩。
 
-真正花掉时间的不是某个模型，而是**合同**：数据集里被记录的物理量、训练时被重建的动作、推理时被送进网络的观测，必须逐字对应同一件事。所以这个项目的主要贡献，是把这些合同做成 GUI、manifest、preflight、测试和日志，让团队在训练前、上机前、rollout 后都能快速判断问题在哪里。
-
-一条贯穿全程的纪律：不把另一台 rig（DAS / Hikrobot）的经验参数迁移到这台机器上。调参只在本 rig 上发生。
+## 一条可检查的实验闭环
 
 <MermaidBlock
-  title="FR3 工作站闭环的合同视图"
-  renderWidth="900px"
+  title="FR3 学习与实机评估工作流"
   chart={`flowchart TB
-    REC["Record session\\nFR3 / Pika / RealSense ee+side @ 60 Hz\\naction = absolute EE + gripper.pos\\ntarget_frame_name = pika_task_tcp"]
-    QC["Dataset QC\\ntimestamp_sync / schema / replay readiness\\nqc_pass 或已确认的 qc_warn"]
-    VIEW["Training View\\ndelta_ee_from_prev_cmd\\ncamera crop 烘进视频\\nil_view_manifest.json"]
-    TRAIN["ACT / pi0.5 训练\\ntrain_config.json 记录 dataset / action / cameras"]
-    ROLL["Rollout\\nXML home keyframe start\\nIK target = pika_task_tcp\\n按 manifest 裁同一个 ROI"]
-
-    REC --> QC --> VIEW --> TRAIN --> ROLL`}
+    A["采集与原始记录"] --> B["质量检查与训练视图"]
+    B --> C["策略训练与离线诊断"]
+    C --> D["部署一致性检查"]
+    D --> E["受控实机评估"]
+    E --> F["阶段评分与失败归因"]
+    F --> A
+    G["标定、回放与外部测量"] --> D
+    G --> F`}
 />
 
-## 面向效率的 GUI 能力
+## 把接口约定变成可执行检查
 
-这套 GUI 的设计目标是缩短机器人学习里最昂贵的循环：从一次失败 rollout，到知道下一轮应该补数据、调动作空间、修感知合同、还是排查硬件。它把“实验员脑子里的上下文”落成界面状态和日志，而不是散落在终端历史、视频文件名和临时笔记里。
+训练与部署必须对同一动作有相同解释。目标位姿还是实测位姿、绝对量还是增量、工具点还是安装点，这些约定若只存在于人的记忆里，错误通常会在真机阶段才暴露。
 
-| 能力 | 第一性原理 | 对学习效率的影响 |
+| 检查对象 | 工程处理 | 实际作用 |
 | --- | --- | --- |
-| Checkpoint 合同检查 | 上机前先判断 checkpoint 的 dataset、action mode、tool frame、camera keys、crop 与 rig 是否一致 | 避免把错误 checkpoint 跑成“模型不行”的假结论 |
-| 交互式 rollout 控制 | policy reload 很慢，场景和 arm start 又必须可比，所以运行进程应保留，Start / Stop / Move to start 走同一控制通道 | 同一 checkpoint 可连续跑多次，不用反复重启推理和相机 |
-| 场景恢复 | policy 只在 demo 覆盖分布里有意义；reset 目标必须在 base x/y 上表达，并从 demo release 点推 pick pose | 每次 rollout 后快速把 peg 放回可控区域，让批量评估可比 |
-| 阶段评分 | success / failure 只有一 bit，不能告诉你失败发生在接近、接触、获取、转移还是插入 | 训练迭代直接看最大漏斗掉点，而不是猜下一轮修哪里 |
-| 落点散点图 | 成功率回答“多少次”，几何图回答“错在哪里”；落点必须和 demo grasp / release 分布同坐标系 | 一眼区分数据覆盖问题、系统性偏移、夹爪未闭合和任务末端精度问题 |
-| Rollout history | checkpoint 会被清理，但它的实验记录仍决定下一轮取舍 | 让客户、团队或投资人看到迭代证据，而不是只看一次 demo |
+| 数据 | 将质检结果、来源和处理记录附在训练视图上 | 训练前发现缺失、错配和不适用数据 |
+| 观测 | 对照相机输入、图像处理与训练时配置 | 避免把输入分布变化误判为模型退化 |
+| 动作 | 明确参考坐标系、工具点、单位和归一化 | 让标签与执行器接收的命令表达同一件事 |
+| 模型产物 | 上机前核对 checkpoint 与目标工作站的兼容性 | 尽早发现配置不一致 |
+| 实验 | 关联轨迹、阶段评分、结束原因与场景状态 | 让失败可复盘、不同试验可比较 |
 
-这里最关键的取舍是：不把 rollout 后的评分做成一个主观平均分。GUI 使用 task ladder，把任务拆成共享阶段词表：未接近、接近、接触、获取、转移、目标接触、约束满足、释放稳定。成功由阶段推出，blocker 单独记录，aborted 不进入成功率分母。这样 20 次全失败的 rollout 仍然能产出信息：到底是 20 次都没碰到物体，还是多数已经抓起、只是在插入阶段掉下去。
+## 评估工具服务于下一轮决策
 
-落点图同样遵循这个原则。每个 rollout 的 `graspXyz`、`releaseXyz`、`approachXyz` 存在 append-only JSONL 里；页面只把当前 checkpoint 的点画在图上，底层叠加同一训练 dataset 的 demo grasp / release landmarks。空心点表示夹爪没闭合，颜色表示阶段，虚线环表示 demo 曾经覆盖过的抓取半径。它不是好看的可视化，而是用来回答一个具体问题：这次失败是在训练分布外，还是 policy 在分布内产生了系统性偏差。
+场景恢复帮助重复建立可比较的起始条件。阶段评分记录任务进行到了哪里，失败原因另行记录；落点与示教覆盖分布放在同一坐标系中查看，用于区分覆盖不足与系统性偏移。
 
-场景恢复功能把这个闭环接上了执行层。GUI 从 demonstration 的 release 均值估计 hole / pick pose，操作者在桌面 base x/y 图上刷允许区域；相机 still 不是简单拉伸成背景，而是按 table plane 投影到同一个 base-frame window，再由 runtime 在两次 rollout 之间移动 FR3 和夹爪，把 peg 放到采样点。这样每一轮试验开始前，任务分布是被显式控制的。
+<MediaImage
+  src="/img/rollout.png"
+  alt="FR3 工作站 Rollout 界面，展示策略运行设置、场景恢复状态、推理服务选择与实验历史入口"
+  caption="FR3 工作站 Rollout 页面：将策略运行、场景恢复、推理服务选择和实验历史收进同一工作流。"
+/>
 
-## 先冻结坐标系和起始位姿
+[查看完整界面](/img/rollout.png)
 
-在讨论任何精度问题之前，两件事必须先冻结，否则后面所有实验都不可比。
+这套设计使一次失败也能留下有用证据。例如，末端到达了目标附近但没有稳定获取物体，下一步应检查抓取与接触过程，而不能仅凭轨迹相似就认定策略已经成功。
 
-**起始位姿只有一个来源。** 闭环以 `fr3_pika_gripper.xml` 的 `home` keyframe 作为唯一初始 pose 合同（前 7 个 arm qpos 为 `0 -0.785 0 -2.355 0 1.57079 0.785`），录制与 rollout 走同一个 helper，执行后读回 `state.q` 逐关节校验，并在日志里打印 keyframe 名和 q target。SDK 自带的 `move_to_start()` 不是工作站合同。
+实验汇总还需要核对完成、失败、中止和未评分记录。只有分母和任务终点明确，成功率才有可比较的含义。
 
-**IK 目标帧必须从几何合同推出。** 训练动作代表的是手指工作点，不是 gripper mount，所以 IK 目标是 `pika_task_tcp`；URDF、MJCF、录制 config、rollout 参数必须同名同位姿，并由 frame contract test 锁住（`pika_task_tcp` 平移误差 ≤ 1 mm、旋转误差 ≤ 0.1°）。runtime 默认值不参与表达合同——不显式传参时 Pika 会落到 `pika_gripper_ee`，这个默认值在这台机器上是错的。
+## 近期扩展：把标定与回放接入工作流
 
-第一性原理是同一句话：**policy 的动作目标必须对应数据集里被记录、被重建的那个物理点**。如果 IK 用的是 gripper mount 或另一个固定 frame，系统不会报错，只会把整条轨迹平移到错误的工作空间。
+新增工作集中在实机基础能力：起始位姿准备、工具坐标检查、夹爪动作复现、外部测量采集与回放误差分析。负载辨识和坐标注册工具帮助解释策略之外的执行偏差。
 
-## QC gate 与 Training View
+这些能力服务于不同采集与回放配置，不能把某一配置的参数或测量结论直接迁移到另一台工作站。当前单臂回放与外部测量已有实现和实测，完整精度验收仍在推进；标定姿态规划的离线验证也与真机验收分开表述。
 
-数据集进训练前必须过 QC。`qc_pass` 直通；`qc_warn` 必须显式确认并把豁免写进 event log；其他状态一律拒绝并指向 Dataset Processing 页面。前端 Training View 的每一行直接显示 QC 状态、禁用原因和具体 warning，`/api/datasets/export` 透传 `acknowledge_warnings`，让“这条数据能不能进训练”成为界面上读得出来的判断。
+测量链路的具体方法见 [UMI 轨迹测量与 FR3 实机复现](/projects/umi-trajectory-gt/)。
 
-Training View 离线派生训练动作合同：默认 `delta_ee_from_prev_cmd`，保留 `absolute_ee` 作为诊断基线；`meta/il_view_manifest.json` 记录 action contract、自检结果、excluded episodes 和 source episode map。跨 session 合并只走 CLI，且每个源 session 都必须先过 QC。
+## 从模型实验到工程交付
 
-## 训练与上机诊断能力
+ACT / pi0.5 与 LoRA 的实验沉淀为动作定义检查、逐维诊断、训练与留出对照，以及实机分阶段评估。离线 loss、轨迹相似度和闭环任务完成率分别回答不同问题，不能互相替代。
 
-近期插孔实验见 [5 mm 直径间隙的插孔实验：从末端误差到可核验的成功率](/2026/09/30/peg-insertion-5mm-experiments/)，重点讨论抓取约束、接触搜索、场景恢复，以及组合系统 47/50 插入结果的适用条件。
+相关方法记录：[策略训练与诊断](/2026/09/30/pi05-lora-fr3-training/) · [接触操作的评估方法](/2026/09/30/peg-insertion-5mm-experiments/)。
 
-Pi0.5 + LoRA 的具体训练配方、消融对照和评估边界见 [Pi0.5 + LoRA 真机训练复盘：从动作契约到可诊断的 FR3 baseline](/2026/09/30/pi05-lora-fr3-training/)。文章整理截至 2026-08-31 的实验：48 条示教完成训练，固定协议真机 20 轮仍为 0 成功，重点是动作契约、LoRA 更新尺度、逐维损失与阶段诊断如何帮助下一轮迭代。
-
-这个项目里沉淀了一组可复用的诊断能力，用来把“模型没学会”拆成更具体的工程问题。
-
-- 观测合同：Training View 的 camera crop、feature shape、实时相机输入和 step0 dump 走同一套 manifest 对账。
-- 相机合同：录制和推理侧的曝光、增益、fps 被显式记录，避免上机时切回自动曝光造成分布漂移。
-- 动作合同：action mode、tool frame、gripper 单位和归一化统计在 checkpoint 上机前被检查，而不是等 rollout 行为来暗示。
-- 数据合同：QC 状态、warning acknowledgement、excluded episodes 和 source episode map 都写进可审计产物。
-- 训练反馈：通过动作统计、梯度范数和 early-stop 判据，尽早发现“训练在优化错误信号”的情况。
-
-这类能力对外展示时比单个实验结果更重要：它说明我能搭的不只是 demo，而是一套持续产出可靠实验结论的机器人学习基础设施。
-
-## 上机运行与交付形态
-
-rollout 侧按风险分层：`env` 打印环境快照，`smoke` 验证 checkpoint / 相机 / forward / action decode，`preview` 做短步数预演，`real_once` 做单次 bounded rollout，`interactive` 支持连续 Start / Stop / Move to start，`real_debug` 叠加 MuJoCo target viewer。所有会移动机器人的路径都有 motion confirmation、合同检查和日志落盘。
-
-运行中页面直接显示 policy 实际看到的相机帧、step limit、leash、tool frame、rollout index、trace path 和 full log。失败后马上进入评分与归因，而不是等人回看视频、翻终端、再凭记忆补记录。
-
-场景恢复、落点图和评分系统组合在一起后，工作流变成：选择 checkpoint → 上机合同检查 → 连续 rollout → 现场评分 → 看落点分布 → reset 场景 → 下一次 rollout。它让机器人学习从一次性展示，变成可批量运行、可比较、可复盘的实验循环。
-
-## 对外价值
-
-这套工作站能力适合三类合作场景：
-
-- 对客户：把具身智能原型从“能跑一次”推进到“能定位失败、能稳定迭代、能交付现场工具”。
-- 对合伙人：提供从硬件接入、数据采集、训练视图、策略部署到 real-robot evaluation 的完整工程闭环。
-- 对投资人：展示的不只是单次机器人演示，而是让机器人能力持续提升的底层系统能力。
-
-我的优势在于把模型、数据、硬件和调试界面放到同一条链路里思考。机器人学习真正需要的是缩短每一轮试错的周期，并让每一次失败留下足够的信息，指导下一轮该修哪里。
+这套工作的工程价值，是让模型、数据、硬件和调试界面使用同一套可追溯上下文。我的贡献集中在跨模块集成、问题定位和工具化，使实验可以被重复执行，也更容易交接给其他使用者。
